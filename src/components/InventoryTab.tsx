@@ -458,8 +458,8 @@ export default function InventoryTab({ products, logs, lang, onAddProduct, onEdi
 
       {/* Add Product Modal */}
       {isAddOpen && (
-        <div className="fixed inset-0 bg-black/40 backdrop-blur-xs flex items-center justify-center p-4 z-50 animate-fade-in" id="add-product-modal">
-          <div className="bg-white rounded-2xl w-full max-w-xl p-6 shadow-xl border border-zinc-200 space-y-4">
+        <div className="fixed inset-0 bg-black/40 backdrop-blur-xs overflow-y-auto flex justify-center items-start sm:items-center p-2 sm:p-4 z-50 animate-fade-in" id="add-product-modal">
+          <div className="my-auto bg-white rounded-2xl w-full max-w-xl p-4 sm:p-6 shadow-xl border border-zinc-200 space-y-4">
             <div className="flex justify-between items-center border-b border-zinc-100 pb-3">
               <h3 className="text-base font-bold text-zinc-900">Register New Agricultural Product</h3>
               <button onClick={() => setIsAddOpen(false)} className="text-zinc-400 hover:text-zinc-650 text-xl font-bold">&times;</button>
@@ -632,8 +632,8 @@ export default function InventoryTab({ products, logs, lang, onAddProduct, onEdi
 
       {/* Edit Product Modal */}
       {editingProduct && (
-        <div className="fixed inset-0 bg-black/40 backdrop-blur-xs flex items-center justify-center p-4 z-50 animate-fade-in" id="edit-product-modal">
-          <div className="bg-white rounded-2xl w-full max-w-xl p-6 shadow-xl border border-zinc-200 space-y-4">
+        <div className="fixed inset-0 bg-black/40 backdrop-blur-xs overflow-y-auto flex justify-center items-start sm:items-center p-2 sm:p-4 z-50 animate-fade-in" id="edit-product-modal">
+          <div className="my-auto bg-white rounded-2xl w-full max-w-xl p-4 sm:p-6 shadow-xl border border-zinc-200 space-y-4">
             <div className="flex justify-between items-center border-b border-zinc-100 pb-3">
               <h3 className="text-base font-bold text-zinc-900">Modify Crop Input Details</h3>
               <button onClick={() => setEditingProduct(null)} className="text-zinc-400 hover:text-zinc-650 text-xl font-bold">&times;</button>
@@ -789,8 +789,8 @@ export default function InventoryTab({ products, logs, lang, onAddProduct, onEdi
 
       {/* Quick Restock Drawer Modal */}
       {restockProduct && (
-        <div className="fixed inset-0 bg-black/40 backdrop-blur-xs flex items-center justify-center p-4 z-50 animate-fade-in" id="restock-product-modal">
-          <div className="bg-white rounded-2xl w-full max-w-md p-6 shadow-xl border border-zinc-200 space-y-4">
+        <div className="fixed inset-0 bg-black/40 backdrop-blur-xs overflow-y-auto flex justify-center items-start sm:items-center p-2 sm:p-4 z-50 animate-fade-in" id="restock-product-modal">
+          <div className="my-auto bg-white rounded-2xl w-full max-w-md p-4 sm:p-6 shadow-xl border border-zinc-200 space-y-4">
             <div className="flex justify-between items-center border-b border-zinc-100 pb-2">
               <div>
                 <span className="text-[10px] uppercase text-zinc-400 font-bold">Fast Storage Action</span>

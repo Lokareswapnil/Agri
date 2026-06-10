@@ -1,5 +1,5 @@
 import React, { useState } from 'react';
-import { ShoppingCart, Search, Trash2, UserPlus, Receipt, ArrowRight, CornerDownRight, Landmark, BadgeAlert, AlertCircle } from 'lucide-react';
+import { ShoppingCart, Search, Trash2, UserPlus, Receipt, ArrowRight, CornerDownRight, Landmark, BadgeAlert, AlertCircle, Printer, MessageSquare, Phone, Copy, Check, Share2, Send } from 'lucide-react';
 import { Product, Customer, Sale, SaleItem } from '../types';
 import { TRANSLATIONS, Language } from '../translations';
 
@@ -8,7 +8,7 @@ interface SalesTabProps {
   customers: Customer[];
   sales: Sale[];
   lang: Language;
-  onRecordSale: (sale: Omit<Sale, 'id' | 'date'>) => void;
+  onRecordSale: (sale: Omit<Sale, 'id' | 'date'>) => Sale;
   onQuickRegisterCustomer: (customer: Omit<Customer, 'id' | 'totalSpent' | 'lastActive'>) => Customer;
 }
 
@@ -37,6 +37,22 @@ export default function SalesTab({ products, customers, sales, lang, onRecordSal
 
   // Selected Invoice viewer
   const [viewingSale, setViewingSale] = useState<Sale | null>(null);
+  
+  // Digital invoice sharing states
+  const [sharePhone, setSharePhone] = useState('');
+  const [copiedSuccess, setCopiedSuccess] = useState(false);
+
+  // Sync sharePhone whenever viewingSale changes
+  React.useEffect(() => {
+    if (viewingSale) {
+      const activeCust = viewingSale.customerId ? customers.find(c => c.id === viewingSale.customerId) : null;
+      setSharePhone(activeCust ? activeCust.phone : '');
+      setCopiedSuccess(false);
+    } else {
+      setSharePhone('');
+      setCopiedSuccess(false);
+    }
+  }, [viewingSale, customers]);
 
   // Active Customer Object
   const selectedFarmer = selectedCustomerId !== 'walk-in' 
@@ -148,7 +164,7 @@ export default function SalesTab({ products, customers, sales, lang, onRecordSal
       notes: paymentNotes || undefined
     };
 
-    onRecordSale(compiledSale);
+    const createdSale = onRecordSale(compiledSale);
 
     // Reset POS checkout state
     setCart([]);
@@ -160,8 +176,8 @@ export default function SalesTab({ products, customers, sales, lang, onRecordSal
     setPaymentNotes('');
     setPaymentMethod('cash');
     
-    // Auto alerts
-    alert('Invoice saved successfully! Inventory deducted and customer ledger updated.');
+    // Auto show the invoice modal for instant print or WhatsApp/SMS dispatch
+    setViewingSale(createdSale);
   };
 
   return (
@@ -648,8 +664,8 @@ export default function SalesTab({ products, customers, sales, lang, onRecordSal
 
       {/* Invoice Details Dialog Modal */}
       {viewingSale && (
-        <div className="fixed inset-0 bg-black/40 backdrop-blur-xs flex items-center justify-center p-4 z-50 animate-fade-in" id="invoice-details-modal">
-          <div className="bg-white rounded-2xl w-full max-w-md p-6 shadow-xl border border-zinc-200 space-y-5">
+        <div className="fixed inset-0 bg-black/40 backdrop-blur-xs overflow-y-auto flex justify-center items-start sm:items-center p-2 sm:p-4 z-50 animate-fade-in" id="invoice-details-modal">
+          <div className="my-auto bg-white rounded-2xl w-full max-w-md p-4 sm:p-6 shadow-xl border border-zinc-200 space-y-5">
             <div className="flex justify-between items-center border-b border-zinc-100 pb-3">
               <div>
                 <span className="text-[10px] uppercase font-mono font-bold text-zinc-400">Tax Invoice Receipt</span>
@@ -709,17 +725,236 @@ export default function SalesTab({ products, customers, sales, lang, onRecordSal
                   <strong>Remarks:</strong> {viewingSale.notes}
                 </div>
               )}
+
+              {/* Digital Dispatch Communication Form */}
+              <div className="bg-emerald-50/70 p-4 border border-emerald-150 rounded-xl space-y-3">
+                <h4 className="text-[11px] font-bold text-emerald-800 uppercase tracking-wider flex items-center gap-1.5">
+                  <Share2 size={13} className="text-emerald-600" />
+                  Dispatch Bill Digitally (SMS / WhatsApp)
+                </h4>
+                
+                <div className="space-y-2">
+                  <div className="flex gap-2">
+                    <div className="relative flex-1">
+                      <div className="absolute left-2.5 top-1/2 -translate-y-1/2 flex items-center gap-1 text-zinc-400">
+                        <Phone size={11} />
+                        <span className="text-[9px] font-bold font-mono">IN</span>
+                      </div>
+                      <input
+                        type="tel"
+                        placeholder="Farmer 10-digit Phone Number"
+                        value={sharePhone}
+                        onChange={(e) => setSharePhone(e.target.value.replace(/\D/g, '').slice(0, 10))}
+                        className="w-full text-xs pl-12 pr-2 py-2 bg-white border border-zinc-200 rounded-lg focus:ring-emerald-500/10 focus:border-emerald-500 font-mono"
+                      />
+                    </div>
+                    <button
+                      type="button"
+                      onClick={() => {
+                        if (!viewingSale) return;
+                        const itemsStr = viewingSale.items.map(item => `${item.productName} (x${item.quantity})`).join(', ');
+                        const dueAmount = viewingSale.totalAmount - viewingSale.amountPaid;
+                        let textMsg = '';
+                        if (lang === 'mr') {
+                          textMsg = `*कृषी-तपशील पावती - AGRI-INPUT CENTER*\n\nशेतकरी: ${viewingSale.customerName}\nबिल क्रमांक: ${viewingSale.id}\nमाल: ${itemsStr}\nएकूण बिल: ₹${viewingSale.totalAmount}\nजमा रक्क: ₹${viewingSale.amountPaid}\n${dueAmount > 0 ? `उर्वरित बाकी (उधारी): ₹${dueAmount}\n` : ''}दिनांक: ${new Date(viewingSale.date).toLocaleDateString()}\n\nआपल्या भेटीबद्दल धन्यवाद! 🙏`;
+                        } else if (lang === 'hi') {
+                          textMsg = `*कृषि डिजिटल बिल पर्ची - AGRI-INPUT CENTER*\n\nकिसान: ${viewingSale.customerName}\nपर्ची क्रमांक: ${viewingSale.id}\nमाल: ${itemsStr}\nकुल बिल: ₹${viewingSale.totalAmount}\nप्राप्त राशि: ₹${viewingSale.amountPaid}\n${dueAmount > 0 ? `शेष बकाया (उधारी): ₹${dueAmount}\n` : ''}दिनांक: ${new Date(viewingSale.date).toLocaleDateString()}\n\nदुकान पर पधारने के लिए धन्यवाद! 🙏`;
+                        } else {
+                          textMsg = `*DIGITAL INVOICE RECEIPT - AGRI-INPUT CENTER*\n\nFarmer: ${viewingSale.customerName}\nInvoice ID: ${viewingSale.id}\nItems: ${itemsStr}\nGross Total: ₹${viewingSale.totalAmount}\nAmount Paid: ₹${viewingSale.amountPaid}\n${dueAmount > 0 ? `Pending Udhaari: ₹${dueAmount}\n` : ''}Date: ${new Date(viewingSale.date).toLocaleDateString()}\n\nThank you for your visit! 🙏`;
+                        }
+                        navigator.clipboard.writeText(textMsg);
+                        setCopiedSuccess(true);
+                        setTimeout(() => setCopiedSuccess(false), 2000);
+                      }}
+                      className="px-2.5 bg-white border border-zinc-200 hover:bg-zinc-50 rounded-lg text-zinc-600 transition-colors flex items-center justify-center cursor-pointer"
+                      title="Copy Message Text"
+                    >
+                      {copiedSuccess ? <Check size={14} className="text-emerald-600" /> : <Copy size={13} />}
+                    </button>
+                  </div>
+
+                  <div className="flex gap-2">
+                    <a
+                      href={`https://wa.me/${sharePhone.length === 10 ? '91' + sharePhone : sharePhone}?text=${encodeURIComponent(
+                        (() => {
+                          const itemsStr = viewingSale.items.map(item => `${item.productName} (x${item.quantity})`).join(', ');
+                          const dueAmount = viewingSale.totalAmount - viewingSale.amountPaid;
+                          if (lang === 'mr') {
+                            return `*कृषी-तपशील पावती - AGRI-INPUT CENTER*\n\nशेतकरी: ${viewingSale.customerName}\nबिल क्रमांक: ${viewingSale.id}\nमाल: ${itemsStr}\nएकूण बिल: ₹${viewingSale.totalAmount}\nजमा रक्क: ₹${viewingSale.amountPaid}\n${dueAmount > 0 ? `उर्वरित बाकी (उधारी): ₹${dueAmount}\n` : ''}दिनांक: ${new Date(viewingSale.date).toLocaleDateString()}\n\nआपल्या भेटीबद्दल धन्यवाद! 🙏`;
+                          } else if (lang === 'hi') {
+                            return `*कृषि डिजिटल बिल पर्ची - AGRI-INPUT CENTER*\n\nकिसान: ${viewingSale.customerName}\nपर्ची क्रमांक: ${viewingSale.id}\nमाल: ${itemsStr}\nकुल बिल: ₹${viewingSale.totalAmount}\nप्राप्त राशि: ₹${viewingSale.amountPaid}\n${dueAmount > 0 ? `शेष बकाया (उधारी): ₹${dueAmount}\n` : ''}दिनांक: ${new Date(viewingSale.date).toLocaleDateString()}\n\nदुकान पर पधारने के लिए धन्यवाद! 🙏`;
+                          } else {
+                            return `*DIGITAL INVOICE RECEIPT - AGRI-INPUT CENTER*\n\nFarmer: ${viewingSale.customerName}\nInvoice ID: ${viewingSale.id}\nItems: ${itemsStr}\nGross Total: ₹${viewingSale.totalAmount}\nAmount Paid: ₹${viewingSale.amountPaid}\n${dueAmount > 0 ? `Pending Udhaari: ₹${dueAmount}\n` : ''}Date: ${new Date(viewingSale.date).toLocaleDateString()}\n\nThank you for your visit! 🙏`;
+                          }
+                        })()
+                      )}`}
+                      target="_blank"
+                      rel="noreferrer"
+                      className="flex-1 py-1.5 bg-emerald-600 hover:bg-emerald-700 text-white font-bold rounded-lg shadow-2xs flex items-center justify-center gap-1 cursor-pointer transition-colors"
+                    >
+                      <MessageSquare size={13} />
+                      WhatsApp
+                    </a>
+
+                    <a
+                      href={`sms:${sharePhone}?body=${encodeURIComponent(
+                        (() => {
+                          const itemsStr = viewingSale.items.map(item => `${item.productName} (x${item.quantity})`).join(', ');
+                          const dueAmount = viewingSale.totalAmount - viewingSale.amountPaid;
+                          if (lang === 'mr') {
+                            return `कृषी-तपशील पावती - AGRI-INPUT CENTER\nशेतकरी: ${viewingSale.customerName}\nबिल: ${viewingSale.id}\nमाल: ${itemsStr}\nएकूण: ₹${viewingSale.totalAmount}\nजमा: ₹${viewingSale.amountPaid}\n${dueAmount > 0 ? `बाकी: ₹${dueAmount}\n` : ''}दिनांक: ${new Date(viewingSale.date).toLocaleDateString()}\nधन्यवाद!`;
+                          } else if (lang === 'hi') {
+                            return `कृषि डिजिटल बिल - AGRI-INPUT CENTER\nकिसान: ${viewingSale.customerName}\nबिल: ${viewingSale.id}\nमाल: ${itemsStr}\nकुल बिल: ₹${viewingSale.totalAmount}\nजमा: ₹${viewingSale.amountPaid}\n${dueAmount > 0 ? `बकाया: ₹${dueAmount}\n` : ''}दिनांक: ${new Date(viewingSale.date).toLocaleDateString()}\nधन्यवाद!`;
+                          } else {
+                            return `DEALER RECEIPT - AGRI-INPUT CENTER\nFarmer: ${viewingSale.customerName}\nInvoice: ${viewingSale.id}\nItems: ${itemsStr}\nTotal: ₹${viewingSale.totalAmount}\nPaid: ₹${viewingSale.amountPaid}\n${dueAmount > 0 ? `Due: ₹${dueAmount}\n` : ''}Date: ${new Date(viewingSale.date).toLocaleDateString()}\nThank you!`;
+                          }
+                        })()
+                      )}`}
+                      className="flex-1 py-1.5 bg-zinc-800 hover:bg-zinc-900 text-white font-bold rounded-lg shadow-2xs flex items-center justify-center gap-1 cursor-pointer transition-colors"
+                    >
+                      <Send size={13} />
+                      Send SMS
+                    </a>
+                  </div>
+                </div>
+              </div>
             </div>
 
-            <div className="flex justify-end pt-3 border-t border-zinc-100">
+            <div className="flex flex-col sm:flex-row gap-2 pt-3 border-t border-zinc-100">
               <button
                 type="button"
                 onClick={() => {
-                  window.print();
+                  if (!viewingSale) return;
+                  // Hidden iframe trick for precise paper sizing (80mm / thermal fit)
+                  const iframe = document.createElement('iframe');
+                  iframe.style.position = 'fixed';
+                  iframe.style.right = '0';
+                  iframe.style.bottom = '0';
+                  iframe.style.width = '0';
+                  iframe.style.height = '0';
+                  iframe.style.border = '0';
+                  document.body.appendChild(iframe);
+
+                  const iframeDoc = iframe.contentWindow?.document || iframe.contentDocument;
+                  if (!iframeDoc) {
+                    window.print();
+                    return;
+                  }
+
+                  const rows = viewingSale.items.map(item => `
+                    <tr style="border-bottom: 1px dashed #eee;">
+                      <td style="padding: 4px 0; font-size: 11px;">${item.productName}</td>
+                      <td style="padding: 4px 0; font-size: 11px; text-align: center;">${item.quantity} ${item.unit || 'units'}</td>
+                      <td style="padding: 4px 0; font-size: 11px; text-align: right;">₹${item.sellPrice}</td>
+                      <td style="padding: 4px 0; font-size: 11px; text-align: right; font-weight: bold;">₹${item.quantity * item.sellPrice}</td>
+                    </tr>
+                  `).join('');
+
+                  iframeDoc.write(`
+                    <html>
+                      <head>
+                        <title>Billing Invoice #${viewingSale.id}</title>
+                        <style>
+                          @page { size: 80mm auto; margin: 0; }
+                          body {
+                            font-family: 'Courier New', monospace;
+                            width: 72mm;
+                            margin: 0;
+                            padding: 8px;
+                            color: #000;
+                            background: #fff;
+                          }
+                          .center { text-align: center; }
+                          .bold { font-weight: bold; }
+                          .title { font-size: 14px; font-weight: bold; margin-bottom: 2px; }
+                          .sub { font-size: 9px; margin-bottom: 2px; }
+                          .divider { border-top: 1px dashed #000; margin: 6px 0; }
+                          table { width: 100%; border-collapse: collapse; }
+                          th { border-bottom: 1px dashed #000; font-size: 10px; padding: 4px 0; text-align: left; }
+                          td { font-size: 10px; }
+                          .text-right { text-align: right; }
+                          .bold-total { display: flex; justify-content: space-between; font-weight: bold; font-size: 11px; margin-top: 4px; }
+                          .footer { text-align: center; margin-top: 16px; font-size: 8px; line-height: 1.3; }
+                        </style>
+                      </head>
+                      <body>
+                        <div class="center">
+                          <div class="title">★ AGRI-INPUT CENTER ★</div>
+                          <div class="sub">Fertilizers, Seeds & Plant Nutrition Depot</div>
+                          <div class="sub">Lic No: LIC/MH-34/CO-4592</div>
+                          <div class="sub">Contact: +91 90496 52848</div>
+                        </div>
+                        <div class="divider"></div>
+                        <div><strong>Voucher:</strong> ${viewingSale.id}</div>
+                        <div><strong>Date   :</strong> ${new Date(viewingSale.date).toLocaleString()}</div>
+                        <div><strong>Farmer :</strong> ${viewingSale.customerName.toUpperCase()}</div>
+                        <div class="divider"></div>
+                        <table>
+                          <thead>
+                            <tr>
+                              <th style="width: 45%;">Crop Input</th>
+                              <th style="width: 15%; text-align: center;">Qty</th>
+                              <th style="width: 20%; text-align: right;">Rate</th>
+                              <th style="width: 20%; text-align: right;">Amt</th>
+                            </tr>
+                          </thead>
+                          <tbody>
+                            ${rows}
+                          </tbody>
+                        </table>
+                        <div class="divider"></div>
+                        <div class="bold-total">
+                          <span>Gross Amt:</span>
+                          <span>₹${viewingSale.totalAmount}</span>
+                        </div>
+                        <div class="bold-total">
+                          <span>Paid Settle:</span>
+                          <span>₹${viewingSale.amountPaid}</span>
+                        </div>
+                        ${viewingSale.totalAmount > viewingSale.amountPaid ? `
+                        <div class="bold-total" style="color: #000;">
+                          <span>Udhaari Balance:</span>
+                          <span>₹${viewingSale.totalAmount - viewingSale.amountPaid}</span>
+                        </div>
+                        ` : ''}
+                        ${viewingSale.notes ? `
+                        <div class="divider"></div>
+                        <div style="font-size: 9px;">Notes: ${viewingSale.notes}</div>
+                        ` : ''}
+                        <div class="divider"></div>
+                        <div class="footer">
+                          <p class="bold">★ KEEP RECEIPT SAFE ★</p>
+                          <p>Authenticated agri premium imports guarantee. Goods once sold cannot be substituted loosely.</p>
+                          <p>Agri-Tally billing console</p>
+                        </div>
+                        <script>
+                          window.onload = function() {
+                            window.focus();
+                            window.print();
+                            setTimeout(function() {
+                              try {
+                                window.parent.document.body.removeChild(window.frameElement);
+                              } catch(e) {}
+                            }, 800);
+                          };
+                        </script>
+                      </body>
+                    </html>
+                  `);
+                  iframeDoc.close();
                 }}
-                className="px-4 py-2 bg-zinc-900 hover:bg-zinc-800 text-white text-xs font-bold rounded-xl shadow-xs"
+                className="flex-1 py-1.5 bg-zinc-900 hover:bg-zinc-800 text-white text-xs font-bold rounded-xl shadow-xs flex items-center justify-center gap-1.5 transition-colors cursor-pointer"
               >
-                Simulate Print / Save PDF
+                <Printer size={14} />
+                Thermal Print (80mm)
+              </button>
+              
+              <button
+                type="button"
+                onClick={() => setViewingSale(null)}
+                className="py-1.5 px-4 bg-zinc-100 hover:bg-zinc-200 text-zinc-700 text-xs font-semibold rounded-xl transition-colors cursor-pointer"
+              >
+                Close
               </button>
             </div>
           </div>

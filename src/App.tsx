@@ -181,7 +181,7 @@ export default function App() {
   };
 
   // Log automated stock checkout and tally bookkeeping
-  const handleRecordSale = (newSale: Omit<Sale, 'id' | 'date'>) => {
+  const handleRecordSale = (newSale: Omit<Sale, 'id' | 'date'>): Sale => {
     const saleId = `sale-${Date.now()}`;
     const sale: Sale = {
       ...newSale,
@@ -238,6 +238,7 @@ export default function App() {
     }
 
     setSales(prev => [...prev, sale]);
+    return sale;
   };
 
   // Farmer debt payout collection
@@ -315,7 +316,7 @@ export default function App() {
     <div className="min-h-screen bg-zinc-50 flex flex-col font-sans text-zinc-900 selection:bg-emerald-100 selection:text-emerald-900" id="tally-app-root">
       
       {/* Visual Header & Tally Navigation bar */}
-      <header className="bg-white border-b border-zinc-200 sticky top-0 z-40 shadow-xs animate-fade-in" id="app-main-header">
+      <header className="bg-white border-b border-zinc-200 sm:sticky sm:top-0 z-40 shadow-xs animate-fade-in" id="app-main-header">
         <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-3.5 flex flex-col lg:flex-row lg:items-center lg:justify-between gap-4">
           
           <div className="flex items-center gap-3">

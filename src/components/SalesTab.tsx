@@ -10,14 +10,131 @@ interface SalesTabProps {
   lang: Language;
   onRecordSale: (sale: Omit<Sale, 'id' | 'date'>) => Sale;
   onQuickRegisterCustomer: (customer: Omit<Customer, 'id' | 'totalSpent' | 'lastActive'>) => Customer;
+  aiCartTrigger?: { productId: string; quantity: number; timestamp: number } | null;
+  aiCustomerTrigger?: { customerId: string; timestamp: number } | null;
+  aiCheckoutTrigger?: { timestamp: number; paymentMethod?: 'cash' | 'card' | 'credit' | 'upi' } | null;
 }
 
-export default function SalesTab({ products, customers, sales, lang, onRecordSale, onQuickRegisterCustomer }: SalesTabProps) {
+export default function SalesTab({ 
+  products, 
+  customers, 
+  sales, 
+  lang, 
+  onRecordSale, 
+  onQuickRegisterCustomer,
+  aiCartTrigger,
+  aiCustomerTrigger,
+  aiCheckoutTrigger
+}: SalesTabProps) {
   const t = TRANSLATIONS[lang];
   // POS States
   const [cart, setCart] = useState<{ product: Product; quantity: number }[]>([]);
 
   const [selectedCustomerId, setSelectedCustomerId] = useState<string | 'walk-in'>('walk-in');
+
+  // React effects to listen to dynamic incoming Krishi-AI Voice actions
+  React.useEffect(() => {
+    if (aiCartTrigger && aiCartTrigger.productId) {
+      const prod = products.find(p => p.id === aiCartTrigger.productId);
+      if (prod) {
+        setCart(prev => {
+          const exists = prev.find(item => item.product.id === prod.id);
+          if (exists) {
+            return prev.map(item => item.product.id === prod.id ? { ...item, quantity: item.quantity + aiCartTrigger.quantity } : item);
+          } else {
+            return [...prev, { product: prod, quantity: aiCartTrigger.quantity }];
+          }
+        });
+      }
+    }
+  }, [aiCartTrigger, products]);
+
+  React.useEffect(() => {
+    if (aiCustomerTrigger && aiCustomerTrigger.customerId) {
+      setSelectedCustomerId(aiCustomerTrigger.customerId);
+    }
+  }, [aiCustomerTrigger]);
+
+  // AI fully automated direct checkout trigger effect
+  React.useEffect(() => {
+    if (aiCheckoutTrigger) {
+      console.log("[Auto-Checkout] AI Checkout Trigger received:", aiCheckoutTrigger);
+      // Construct the absolute latest cart, incorporating any concurrent aiCartTrigger changes from this tick
+      let finalCart = [...cart];
+      if (aiCartTrigger && aiCartTrigger.productId && Math.abs(aiCheckoutTrigger.timestamp - aiCartTrigger.timestamp) < 500) {
+        const prod = products.find(p => p.id === aiCartTrigger.productId);
+        if (prod) {
+          const existsIdx = finalCart.findIndex(item => item.product.id === prod.id);
+          if (existsIdx > -1) {
+            finalCart[existsIdx] = { ...finalCart[existsIdx], quantity: finalCart[existsIdx].quantity + aiCartTrigger.quantity };
+          } else {
+            finalCart.push({ product: prod, quantity: aiCartTrigger.quantity });
+          }
+        }
+      }
+
+      if (finalCart.length === 0) {
+        console.warn("[Auto-Checkout] Cancelled checkout. Cart is empty.");
+        return;
+      }
+
+      // Compile items
+      const saleItems: SaleItem[] = finalCart.map(item => ({
+        productId: item.product.id,
+        productName: item.product.name,
+        quantity: item.quantity,
+        sellPrice: item.product.sellPrice,
+        costPrice: item.product.costPrice,
+        unit: item.product.unit
+      }));
+
+      // Find selected customer
+      let activeCustomerId = selectedCustomerId;
+      if (aiCustomerTrigger && Math.abs(aiCheckoutTrigger.timestamp - aiCustomerTrigger.timestamp) < 500) {
+        activeCustomerId = aiCustomerTrigger.customerId;
+      }
+
+      const activeFarmer = activeCustomerId !== 'walk-in' 
+        ? customers.find(c => c.id === activeCustomerId) 
+        : null;
+
+      let customerNameCombined = 'Walk-In Customer';
+      if (activeFarmer) {
+        customerNameCombined = activeFarmer.name;
+      } else if (walkInName) {
+        customerNameCombined = `${walkInName} (Walk-In)`;
+      }
+
+      const totalAmount = finalCart.reduce((sum, item) => sum + (item.product.sellPrice * item.quantity), 0);
+      const parsedPaymentMethod = aiCheckoutTrigger.paymentMethod || 'cash';
+
+      const compiledSale: Omit<Sale, 'id' | 'date'> = {
+        customerId: activeCustomerId === 'walk-in' ? null : activeCustomerId,
+        customerName: customerNameCombined,
+        items: saleItems,
+        totalAmount,
+        amountPaid: parsedPaymentMethod === 'credit' ? 0 : totalAmount,
+        paymentMethod: parsedPaymentMethod,
+        notes: lang === 'mr' ? "कृषी-एआय व्हॉइस असिस्टंट द्वारे स्वयंचलित बिलिंग." : lang === 'hi' ? "कृषि-एआई वॉइस असिस्टेंट द्वारा स्वचालित बिलिंग।" : "Automated billing via Krishi-AI Voice Assistant."
+      };
+
+      console.log("[Auto-Checkout] Complete compiler recording:", compiledSale);
+      const createdSale = onRecordSale(compiledSale);
+
+      // Reset state
+      setCart([]);
+      setSelectedCustomerId('walk-in');
+      setWalkInName('Spot Cash Buyer');
+      setWalkInPhone('');
+      setWalkInVillage('');
+      setAmountPaidInput('');
+      setPaymentNotes('');
+      setPaymentMethod('cash');
+
+      // Instantly open generated invoice modal
+      setViewingSale(createdSale);
+    }
+  }, [aiCheckoutTrigger]);
   
   // Walk-in or quick register details
   const [walkInName, setWalkInName] = useState('Spot Cash Buyer');
@@ -181,19 +298,22 @@ export default function SalesTab({ products, customers, sales, lang, onRecordSal
   };
 
   return (
-    <div className="grid grid-cols-1 lg:grid-cols-12 gap-6" id="sales-tab-pos-root">
+    <div className="grid grid-cols-1 lg:grid-cols-12 gap-8" id="sales-tab-pos-root">
       {/* POS Cart and Input Engine */}
       <div className="lg:col-span-7 space-y-6">
         
         {/* Step 1: Customer details choosing */}
-        <div className="bg-white p-5 border border-zinc-150 rounded-2xl space-y-4">
-          <div className="flex justify-between items-center">
-            <h3 className="text-sm font-bold text-zinc-900 uppercase tracking-wider">{t.step1Customer}</h3>
+        <div className="tactile-card bg-white p-6 space-y-4">
+          <div className="flex justify-between items-center pb-2 border-b border-zinc-100">
+            <h3 className="text-xs font-bold text-emerald-805 uppercase tracking-widest font-display flex items-center gap-1.5">
+              <span className="w-2 h-2 rounded-full bg-emerald-500 animate-pulse" />
+              {t.step1Customer}
+            </h3>
             <button
               id="toggle-quick-register-btn"
               type="button"
               onClick={() => setIsQuickRegistering(!isQuickRegistering)}
-              className="text-xs font-bold text-emerald-600 hover:text-emerald-700 flex items-center gap-1 cursor-pointer"
+              className="text-xs font-bold text-emerald-600 hover:text-emerald-700 hover:underline flex items-center gap-1 cursor-pointer transition-colors"
             >
               <UserPlus size={14} />
               {isQuickRegistering ? t.chooseExistingFarmer : t.quickRegisterFarmer}
@@ -201,10 +321,10 @@ export default function SalesTab({ products, customers, sales, lang, onRecordSal
           </div>
 
           {!isQuickRegistering ? (
-            <div className="space-y-3">
-              <div className="grid grid-cols-1 md:grid-cols-3 gap-3">
+            <div className="space-y-4">
+              <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
                 <div className="md:col-span-2 space-y-1">
-                  <label className="text-[10px] uppercase font-bold text-zinc-400" htmlFor="farmer-profile-select">{t.buyerNameLabel}</label>
+                  <label className="text-[10px] uppercase font-extrabold text-zinc-400 tracking-wider" htmlFor="farmer-profile-select">{t.buyerNameLabel}</label>
                   <select
                     id="farmer-profile-select"
                     value={selectedCustomerId}
@@ -214,7 +334,7 @@ export default function SalesTab({ products, customers, sales, lang, onRecordSal
                         setPaymentMethod('cash');
                       }
                     }}
-                    className="w-full text-xs p-2.5 bg-white border border-zinc-200 rounded-xl focus:ring-emerald-500/10 focus:border-emerald-500"
+                    className="w-full text-xs p-3 bg-zinc-50 hover:bg-white border-2 border-zinc-250 rounded-xl focus:ring-emerald-500/10 focus:border-emerald-500 transition-colors cursor-pointer font-semibold text-zinc-800"
                   >
                     <option value="walk-in">{t.nonRegisteredWalkIn}</option>
                     {customers.map((c) => (
@@ -227,11 +347,11 @@ export default function SalesTab({ products, customers, sales, lang, onRecordSal
                 
                 {selectedCustomerId === 'walk-in' && (
                   <div className="space-y-1">
-                    <label className="text-[10px] uppercase font-bold text-zinc-400" htmlFor="walk-in-name-input">{t.buyerNameLabel}</label>
+                    <label className="text-[10px] uppercase font-extrabold text-zinc-400 tracking-wider" htmlFor="walk-in-name-input">{t.buyerNameLabel}</label>
                     <input
                       id="walk-in-name-input"
                       type="text"
-                      className="w-full text-xs p-2.5 bg-white border border-zinc-200 rounded-xl focus:ring-emerald-500/10"
+                      className="w-full text-xs p-3 bg-zinc-50 focus:bg-white border-2 border-zinc-250 focus:border-emerald-500 rounded-xl focus:outline-none transition-colors font-semibold text-zinc-805"
                       value={walkInName}
                       onChange={(e) => setWalkInName(e.target.value)}
                     />
@@ -239,24 +359,24 @@ export default function SalesTab({ products, customers, sales, lang, onRecordSal
                 )}
               </div>
 
-              {/* Outstanding ledger notification */}
+              {/* Outstanding ledger notification with a 3D overlay status */}
               {selectedFarmer && (
-                <div className={`p-3 rounded-xl border flex items-start gap-2.5 text-xs ${
+                <div className={`p-4 rounded-xl border-t-4 flex items-start gap-3.5 text-xs shadow-3xs transition-all ${
                   selectedFarmer.debt > 0 
-                    ? 'bg-amber-50 text-amber-850 border-amber-200' 
-                    : 'bg-emerald-50 text-emerald-800 border-emerald-150'
+                    ? 'bg-amber-50/50 text-amber-900 border-amber-500' 
+                    : 'bg-emerald-50/50 text-emerald-900 border-emerald-500'
                 }`}>
-                  <AlertCircle size={16} className={`shrink-0 mt-0.5 ${selectedFarmer.debt > 0 ? 'text-amber-600' : 'text-emerald-600'}`} />
+                  <AlertCircle size={18} className={`shrink-0 mt-0.5 ${selectedFarmer.debt > 0 ? 'text-amber-600' : 'text-emerald-600'}`} />
                   <div>
-                    <span className="font-bold">Farmer Profile Status ({selectedFarmer.name}):</span>
-                    <p className="mt-0.5 text-zinc-500 font-medium">
-                      Village: <span className="font-bold text-zinc-800">{selectedFarmer.village}</span> • 
-                      Contact: <span className="font-bold text-zinc-805">{selectedFarmer.phone || 'None'}</span> • 
-                      Active Debt: <span className={`font-bold ${selectedFarmer.debt > 0 ? 'text-rose-600' : 'text-emerald-700'}`}>₹{selectedFarmer.debt}</span>
+                    <span className="font-bold text-zinc-800">Farmer Ledger Status: <strong className="text-zinc-900">{selectedFarmer.name}</strong></span>
+                    <p className="mt-1 text-zinc-650 font-semibold space-x-1.5 flex flex-wrap gap-y-1">
+                      <span>Village: <strong className="text-zinc-900 bg-white border border-zinc-200 px-1.5 py-0.5 rounded">{selectedFarmer.village}</strong></span>
+                      <span>• Contact: <strong className="text-zinc-90 w-auto bg-white border border-zinc-200 px-1.5 py-0.5 rounded">{selectedFarmer.phone || 'None'}</strong></span>
+                      <span>• Outstanding: <strong className={`px-1.5 py-0.5 rounded border ${selectedFarmer.debt > 0 ? 'text-rose-700 bg-rose-50 border-rose-200' : 'text-emerald-700 bg-emerald-50 border-emerald-200'}`}>₹{selectedFarmer.debt}</strong></span>
                     </p>
                     {selectedFarmer.debt > 3000 && (
-                      <p className="text-[10px] font-bold text-amber-800 mt-1 uppercase tracking-wider bg-amber-100/50 inline-block px-1.5 py-0.5 rounded">
-                        High Credit Alert! Collect outstanding balance before proceeding.
+                      <p className="text-[10px] font-bold text-rose-800 mt-2 uppercase tracking-widest bg-rose-150 inline-flex items-center gap-1 px-2.5 py-1 rounded-lg border border-rose-200">
+                        <BadgeAlert size={12} className="text-rose-600 shrink-0" /> Note: Collect dues first!
                       </p>
                     )}
                   </div>
@@ -264,35 +384,35 @@ export default function SalesTab({ products, customers, sales, lang, onRecordSal
               )}
             </div>
           ) : (
-            /* Quick Farmer Enrollment subform */
-            <form onSubmit={handleRegisterAndAssignFarmer} className="bg-zinc-50 p-4 border border-zinc-200 rounded-xl space-y-3">
-              <span className="text-xs font-bold text-zinc-700 block">Fast Enroll - Farmer</span>
+            /* Quick Farmer Enrollment subform built as 3D Card */
+            <form onSubmit={handleRegisterAndAssignFarmer} className="bg-zinc-50 p-4 border border-zinc-200 rounded-xl space-y-3.5 shadow-inner">
+              <span className="text-xs font-bold text-zinc-700 block uppercase tracking-wider font-display">New Farmer Quick-Tally Entry</span>
               <div className="grid grid-cols-1 md:grid-cols-3 gap-3">
                 <div className="space-y-1">
-                  <label className="text-[10px] font-bold text-zinc-400 uppercase" htmlFor="enroll-name">Farmer Name *</label>
+                  <label className="text-[10px] font-extrabold text-zinc-400 uppercase tracking-wider" htmlFor="enroll-name">Farmer Name *</label>
                   <input
                     id="enroll-name"
                     type="text"
                     required
-                    placeholder="e.g. Ramesh Patel"
+                    placeholder="e.g. Ramesh Patil"
                     value={walkInName}
                     onChange={(e) => setWalkInName(e.target.value)}
-                    className="w-full text-xs p-2 bg-white border border-zinc-200 rounded-lg focus:ring-emerald-500/10"
+                    className="w-full text-xs p-2.5 bg-white border border-zinc-250 rounded-lg focus:outline-none focus:ring-1 focus:ring-emerald-500 font-semibold"
                   />
                 </div>
                 <div className="space-y-1">
-                  <label className="text-[10px] font-bold text-zinc-400 uppercase" htmlFor="enroll-phone">Phone Number</label>
+                  <label className="text-[10px] font-extrabold text-zinc-400 uppercase tracking-wider" htmlFor="enroll-phone">Phone Number</label>
                   <input
                     id="enroll-phone"
                     type="tel"
                     placeholder="10 digit number"
                     value={walkInPhone}
                     onChange={(e) => setWalkInPhone(e.target.value)}
-                    className="w-full text-xs p-2 bg-white border border-zinc-200 rounded-lg focus:ring-emerald-500/10"
+                    className="w-full text-xs p-2.5 bg-white border border-zinc-250 rounded-lg focus:outline-none focus:ring-1 focus:ring-emerald-500 font-semibold"
                   />
                 </div>
                 <div className="space-y-1">
-                  <label className="text-[10px] font-bold text-zinc-400 uppercase" htmlFor="enroll-village">Village/Area *</label>
+                  <label className="text-[10px] font-extrabold text-zinc-400 uppercase tracking-wider" htmlFor="enroll-village">Village/Area *</label>
                   <input
                     id="enroll-village"
                     type="text"
@@ -300,24 +420,24 @@ export default function SalesTab({ products, customers, sales, lang, onRecordSal
                     placeholder="e.g. Haripur"
                     value={walkInVillage}
                     onChange={(e) => setWalkInVillage(e.target.value)}
-                    className="w-full text-xs p-2 bg-white border border-zinc-200 rounded-lg focus:ring-emerald-500/10"
+                    className="w-full text-xs p-2.5 bg-white border border-zinc-250 rounded-lg focus:outline-none focus:ring-1 focus:ring-emerald-500 font-semibold"
                   />
                 </div>
               </div>
-              <div className="flex justify-end gap-2 pt-2">
+              <div className="flex justify-end gap-2.5 pt-2">
                 <button
                   type="button"
                   onClick={() => setIsQuickRegistering(false)}
-                  className="px-3 py-1.5 text-xs text-zinc-500 font-semibold"
+                  className="px-3 py-1.5 text-xs text-zinc-500 hover:text-zinc-800 font-bold"
                 >
                   Cancel
                 </button>
                 <button
                   type="submit"
                   id="enroll-farmer-btn"
-                  className="px-4 py-1.5 bg-emerald-600 hover:bg-emerald-700 text-white text-xs font-bold rounded-lg shadow-xs"
+                  className="px-5 py-2 btn-3d-emerald text-xs text-white"
                 >
-                  Register and Connect
+                  Register & Connect
                 </button>
               </div>
             </form>
@@ -325,18 +445,22 @@ export default function SalesTab({ products, customers, sales, lang, onRecordSal
         </div>
 
         {/* Step 2: Product Addition POS */}
-        <div className="bg-white p-5 border border-zinc-150 rounded-2xl space-y-4">
-          <h3 className="text-sm font-bold text-zinc-900 uppercase tracking-wider">{t.step2Products}</h3>
+        <div className="tactile-card bg-white p-6 space-y-4">
+          <h3 className="text-xs font-bold text-emerald-805 uppercase tracking-widest font-display pb-2 border-b border-zinc-100 flex items-center gap-1.5">
+            <span className="w-2 h-2 rounded-full bg-emerald-500" />
+            {t.step2Products}
+          </h3>
           
-          <form onSubmit={handleAddProductToCart} className="space-y-3">
-            <div className="grid grid-cols-1 md:grid-cols-12 gap-3">
+          <form onSubmit={handleAddProductToCart} className="space-y-4">
+            <div className="grid grid-cols-1 md:grid-cols-12 gap-4">
               <div className="md:col-span-5 space-y-1 relative">
-                <label className="text-[10px] uppercase font-bold text-zinc-400" htmlFor="pos-search-composition">{t.tabStock}</label>
+                <label className="text-[10px] uppercase font-extrabold text-zinc-400 tracking-wider" htmlFor="pos-search-composition">Product Item Catalogue *</label>
                 <div className="relative">
-                  <Search className="absolute left-2.5 top-1/2 -translate-y-1/2 text-zinc-400" size={15} />
+                  <Search className="absolute left-3.5 top-1/2 -translate-y-1/2 text-emerald-600" size={15} />
                   <input
                     id="pos-search-composition"
                     type="text"
+                    autoComplete="off"
                     placeholder={t.searchStockPlaceholder}
                     value={searchProductQuery}
                     onChange={(e) => {
@@ -345,13 +469,13 @@ export default function SalesTab({ products, customers, sales, lang, onRecordSal
                         setSelectedProductDraft(null);
                       }
                     }}
-                    className="w-full text-xs pl-8 pr-3 py-2.5 bg-white border border-zinc-200 rounded-xl focus:outline-none focus:ring-1 focus:ring-emerald-500"
+                    className="w-full text-xs pl-10 pr-3 py-3 bg-zinc-50 hover:bg-white border-2 border-zinc-250 focus:border-emerald-500 rounded-xl focus:outline-none transition-colors font-semibold"
                   />
                 </div>
 
                 {/* Dropdown overlay */}
                 {searchProductQuery && !selectedProductDraft && (
-                  <div className="absolute left-0 right-0 mt-1 bg-white border border-zinc-250 rounded-xl shadow-lg max-h-48 overflow-y-auto z-10 text-xs divide-y divide-zinc-100">
+                  <div className="absolute left-0 right-0 mt-2 bg-white border-2 border-zinc-200 rounded-xl shadow-[0_12px_32px_rgba(0,0,0,0.12)] max-h-48 overflow-y-auto z-20 text-xs divide-y divide-zinc-150">
                     {searchableProducts.map(p => (
                       <button
                         key={p.id}
@@ -361,30 +485,30 @@ export default function SalesTab({ products, customers, sales, lang, onRecordSal
                           setSelectedProductDraft(p);
                           setSearchProductQuery(p.name);
                         }}
-                        className="w-full text-left p-2.5 hover:bg-zinc-50 flex flex-col gap-0.5 focus:outline-none"
+                        className="w-full text-left p-3 hover:bg-emerald-50/50 flex flex-col gap-1 focus:outline-none transition-all"
                       >
-                        <div className="flex justify-between font-bold text-zinc-800">
-                          <span>{p.name}</span>
-                          <span className={`${p.stock <= p.minStockAlert ? 'text-rose-600 font-extrabold' : 'text-zinc-500'}`}>
+                        <div className="flex justify-between font-extrabold text-zinc-800">
+                          <span className="text-zinc-900 font-bold">{p.name}</span>
+                          <span className={`${p.stock <= p.minStockAlert ? 'text-rose-600 bg-rose-50 border border-rose-100 px-1.5 py-0.5 rounded text-[10px] font-extrabold animate-pulse' : 'text-emerald-700 bg-emerald-50 border border-emerald-100 px-1.5 py-0.5 rounded text-[10px]'}`}>
                             {p.stock} {p.unit} left
                           </span>
                         </div>
-                        <div className="flex justify-between text-[10px] text-zinc-400">
+                        <div className="flex justify-between text-[10px] text-zinc-500 font-semibold">
                           <span>Mfg: {p.manufacturer} • Batch: {p.batchNumber}</span>
-                          <span className="font-semibold text-zinc-700">₹{p.sellPrice} / unit</span>
+                          <span className="text-zinc-900 bg-zinc-150 px-1 rounded">₹{p.sellPrice} / unit</span>
                         </div>
                       </button>
                     ))}
                     {searchableProducts.length === 0 && (
-                      <div className="p-3 text-center italic text-zinc-400">No items available.</div>
+                      <div className="p-3 text-center italic text-zinc-400 bg-zinc-50">No items available.</div>
                     )}
                   </div>
                 )}
               </div>
 
               <div className="md:col-span-3 space-y-1">
-                <label className="text-[10px] uppercase font-bold text-zinc-400" htmlFor="pos-quantity-input">{t.quantity}</label>
-                <div className="flex items-center gap-1.5">
+                <label className="text-[10px] uppercase font-extrabold text-zinc-400 tracking-wider" htmlFor="pos-quantity-input">{t.quantity}</label>
+                <div className="flex items-center gap-2">
                   <input
                     id="pos-quantity-input"
                     type="number"
@@ -392,10 +516,10 @@ export default function SalesTab({ products, customers, sales, lang, onRecordSal
                     max={selectedProductDraft?.stock || 500}
                     value={quantityDraft}
                     onChange={(e) => setQuantityDraft(Number(e.target.value))}
-                    className="w-full text-xs p-2 bg-white border border-zinc-200 rounded-xl text-center focus:ring-emerald-500/10"
+                    className="w-full text-xs p-2.5 bg-zinc-50 border-2 border-zinc-250 focus:border-emerald-500 font-bold rounded-xl text-center focus:outline-none transition-colors"
                   />
-                  <span className="text-[10px] text-zinc-400 font-bold truncate max-w-[50px]">
-                    {selectedProductDraft?.unit || 'units'}
+                  <span className="text-[10px] text-zinc-500 font-extrabold bg-zinc-100 border px-2 py-1 rounded truncate max-w-[65px] select-none text-center">
+                    {selectedProductDraft?.unit || 'bags'}
                   </span>
                 </div>
               </div>
@@ -405,7 +529,7 @@ export default function SalesTab({ products, customers, sales, lang, onRecordSal
                   type="submit"
                   id="add-item-to-pos-cart-btn"
                   disabled={!selectedProductDraft}
-                  className="w-full py-2.5 bg-zinc-900 hover:bg-zinc-800 text-white text-xs font-bold rounded-xl transition-all disabled:opacity-40 disabled:cursor-not-allowed flex items-center justify-center gap-1 cursor-pointer"
+                  className="w-full py-2.5 bg-zinc-900 hover:bg-zinc-805 text-white text-xs font-bold rounded-xl transition-all disabled:opacity-40 disabled:cursor-not-allowed flex items-center justify-center gap-1.5 cursor-pointer shadow-[0_4px_0_rgba(0,0,0,0.15)] active:translate-y-0.5"
                 >
                   <ShoppingCart size={14} />
                   {t.addToCartBtn}
@@ -413,49 +537,49 @@ export default function SalesTab({ products, customers, sales, lang, onRecordSal
               </div>
             </div>
             {selectedProductDraft && (
-              <div className="text-[11px] bg-zinc-50 text-zinc-500 p-2 rounded-lg border border-zinc-100 flex justify-between animate-fade-in">
-                <span>Composition details: <strong className="text-zinc-650 font-semibold">{selectedProductDraft.description}</strong></span>
-                <span className="font-bold text-zinc-705 shrink-0">Subtotal: ₹{selectedProductDraft.sellPrice * quantityDraft}</span>
+              <div className="text-[11px] bg-emerald-50/55 text-emerald-850 p-2.5 rounded-lg border border-emerald-100 flex justify-between animate-fade-in font-semibold">
+                <span>Composition details: <strong className="text-zinc-700">{selectedProductDraft.description}</strong></span>
+                <span className="font-bold text-emerald-805 shrink-0">Product Subtotal: ₹{selectedProductDraft.sellPrice * quantityDraft}</span>
               </div>
             )}
           </form>
 
-          {/* Cart Table list */}
-          <div className="border border-zinc-150 rounded-xl overflow-hidden bg-zinc-50/50">
-            <div className="p-3 bg-zinc-100/80 border-b border-zinc-150 flex items-center gap-1.5 justify-between">
+          {/* Cart Table list with polished 3D borders */}
+          <div className="border border-zinc-200 rounded-xl overflow-hidden shadow-2xs">
+            <div className="p-3 bg-gradient-to-r from-zinc-50 to-zinc-100 border-b border-zinc-200 flex items-center gap-1.5 justify-between">
               <span className="text-xs font-bold text-zinc-700 flex items-center gap-1.5 align-middle">
-                <ShoppingCart size={15} className="text-zinc-500" />
+                <ShoppingCart size={15} className="text-emerald-700 animate-pulse" />
                 {t.activeCartTitle}
               </span>
-              <span className="text-[10px] font-bold text-zinc-500 bg-white border px-2 py-0.5 rounded-full">{cart.reduce((s, c) => s + c.quantity, 0)} Units Loaded</span>
+              <span className="text-[11px] font-bold text-emerald-805 bg-emerald-50 border border-emerald-200 px-2.5 py-0.5 rounded-full">{cart.reduce((s, c) => s + c.quantity, 0)} Items Added</span>
             </div>
 
             <table className="w-full text-xs text-left">
               <thead>
-                <tr className="bg-zinc-50 border-b border-zinc-150 text-zinc-500 font-semibold uppercase tracking-wider text-[10px]">
-                  <th className="px-4 py-2">Item</th>
-                  <th className="px-4 py-2 text-right">Unit Price</th>
-                  <th className="px-4 py-2 text-center">Qty</th>
-                  <th className="px-4 py-2 text-right">Total</th>
-                  <th className="px-4 py-2 text-center">Del</th>
+                <tr className="bg-zinc-50 border-b border-zinc-200 text-zinc-500 font-bold uppercase tracking-wider text-[10px]">
+                  <th className="px-4 py-3">Item name</th>
+                  <th className="px-4 py-3 text-right">Unit Price</th>
+                  <th className="px-4 py-3 text-center">Quantity</th>
+                  <th className="px-4 py-3 text-right">Total Price</th>
+                  <th className="px-4 py-3 text-center">Delete</th>
                 </tr>
               </thead>
               <tbody className="divide-y divide-zinc-100 bg-white">
                 {cart.map((item) => (
                   <tr key={item.product.id} className="hover:bg-zinc-50/50">
-                    <td className="px-4 py-2">
-                      <p className="font-bold text-zinc-800">{item.product.name}</p>
-                      <p className="text-[10px] text-zinc-400 capitalize">{item.product.category} ({item.product.manufacturer})</p>
+                    <td className="px-4 py-3">
+                      <p className="font-bold text-zinc-850">{item.product.name}</p>
+                      <p className="text-[10px] text-zinc-400 capitalize font-medium">{item.product.category} ({item.product.manufacturer})</p>
                     </td>
-                    <td className="px-4 py-2 text-right text-zinc-650">₹{item.product.sellPrice}</td>
-                    <td className="px-4 py-2 text-center font-semibold text-zinc-800">{item.quantity} {item.product.unit}</td>
-                    <td className="px-4 py-2 text-right font-bold text-zinc-950">₹{item.product.sellPrice * item.quantity}</td>
-                    <td className="px-4 py-2 text-center">
+                    <td className="px-4 py-3 text-right text-zinc-600 font-semibold">₹{item.product.sellPrice}</td>
+                    <td className="px-4 py-3 text-center font-bold text-zinc-800">{item.quantity} {item.product.unit}</td>
+                    <td className="px-4 py-3 text-right font-extrabold text-zinc-950">₹{item.product.sellPrice * item.quantity}</td>
+                    <td className="px-4 py-3 text-center">
                       <button
                         id={`remove-cart-item-${item.product.id}`}
                         type="button"
                         onClick={() => handleRemoveFromCart(item.product.id)}
-                        className="p-1 hover:bg-rose-50 text-rose-500 rounded-lg"
+                        className="p-1 hover:bg-rose-50 text-rose-500 rounded-lg hover:text-rose-700 transition-all cursor-pointer"
                       >
                         <Trash2 size={14} />
                       </button>
@@ -464,7 +588,7 @@ export default function SalesTab({ products, customers, sales, lang, onRecordSal
                 ))}
                 {cart.length === 0 && (
                   <tr>
-                    <td colSpan={5} className="px-4 py-10 text-center text-zinc-400 italic">
+                    <td colSpan={5} className="px-4 py-12 text-center text-zinc-400 italic font-medium bg-zinc-50/30">
                       {t.cartIsEmptyPrompt}
                     </td>
                   </tr>
@@ -479,65 +603,67 @@ export default function SalesTab({ products, customers, sales, lang, onRecordSal
       <div className="lg:col-span-5 space-y-6">
         
         {/* Checkout Summary panel */}
-        <div className="bg-white p-5 border border-zinc-150 rounded-2xl space-y-4 shadow-xs">
-          <h3 className="text-sm font-bold text-zinc-900 uppercase tracking-wider">{t.step3Payment}</h3>
+        <div className="tactile-card bg-white p-6 space-y-4">
+          <h3 className="text-xs font-bold text-emerald-805 uppercase tracking-widest font-display pb-2 border-b border-zinc-100">
+            {t.step3Payment}
+          </h3>
           
           <form onSubmit={handleCheckoutComplete} className="space-y-4">
-            <div className="divide-y divide-zinc-100 bg-zinc-50 border border-zinc-150 p-4 rounded-xl space-y-2">
-              <div className="flex justify-between text-xs py-1">
-                <span className="text-zinc-500">{t.originalBillAmt}:</span>
-                <span className="font-semibold text-zinc-800">{cart.length} product(s)</span>
+            <div className="divide-y divide-zinc-200/60 bg-gradient-to-br from-zinc-50 to-zinc-100/50 border border-zinc-200 p-4 rounded-xl space-y-2.5 shadow-inner">
+              <div className="flex justify-between text-xs py-0.5 font-bold text-zinc-650">
+                <span>Items checklist:</span>
+                <span>{cart.length} unique line(s)</span>
               </div>
-              <div className="flex justify-between text-sm py-2 font-bold text-zinc-900">
-                <span>{t.grandTotal}:</span>
-                <span className="text-lg text-emerald-700 font-bold">₹{totalAmount.toLocaleString('en-IN')}</span>
+              <div className="flex justify-between text-sm py-2 font-bold text-zinc-900 border-t border-zinc-200">
+                <span className="font-display uppercase tracking-wider">{t.grandTotal}:</span>
+                <span className="text-xl text-emerald-805 font-extrabold font-display">₹{totalAmount.toLocaleString('en-IN')}</span>
               </div>
             </div>
 
-            <div className="space-y-3">
-              <div className="space-y-1">
-                <span className="text-[10px] font-bold text-zinc-400 uppercase tracking-wider">{t.paymentMethodLabel} *</span>
+            <div className="space-y-4">
+              <div className="space-y-1.5">
+                <span className="text-[10px] font-extrabold text-zinc-400 uppercase tracking-widest">{t.paymentMethodLabel} *</span>
                 <div className="grid grid-cols-2 gap-2 text-xs">
                   <button
                     id="pay-cash-btn"
                     type="button"
                     onClick={() => { setPaymentMethod('cash'); setAmountPaidInput(''); }}
-                    className={`p-2.5 rounded-xl border font-bold text-left flex items-center justify-between transition-all cursor-pointer ${
+                    className={`p-3 rounded-xl border-2 font-bold text-left flex items-center justify-between transition-all cursor-pointer ${
                       paymentMethod === 'cash'
-                        ? 'bg-emerald-50 border-emerald-400 text-emerald-705'
-                        : 'bg-white border-zinc-200 hover:bg-zinc-50 text-zinc-650'
+                        ? 'bg-emerald-50 border-emerald-500 text-emerald-805 shadow-sm'
+                        : 'bg-white border-zinc-200 hover:bg-zinc-50 text-zinc-600'
                     }`}
                   >
                     {t.payCash}
-                    <span className="text-[10px] font-mono px-1 bg-white border border-zinc-200 rounded">CASH</span>
+                    <span className="text-[9px] font-mono px-1.5 bg-emerald-100 text-emerald-700 border border-emerald-250 rounded font-black">CASH</span>
                   </button>
 
                   <button
                     id="pay-upi-btn"
                     type="button"
                     onClick={() => { setPaymentMethod('upi'); setAmountPaidInput(''); }}
-                    className={`p-2.5 rounded-xl border font-bold text-left flex items-center justify-between transition-all cursor-pointer ${
+                    className={`p-3 rounded-xl border-2 font-bold text-left flex items-center justify-between transition-all cursor-pointer ${
                       paymentMethod === 'upi'
-                        ? 'bg-emerald-50 border-emerald-400 text-emerald-705'
-                        : 'bg-white border-zinc-200 hover:bg-zinc-50 text-zinc-650'
+                        ? 'bg-emerald-50 border-emerald-500 text-emerald-805 shadow-sm'
+                        : 'bg-white border-zinc-200 hover:bg-zinc-50 text-zinc-600'
                     }`}
                   >
                     {t.payUpi}
-                    <span className="text-[10px] font-mono px-1 bg-white border border-zinc-200 rounded">UPI</span>
+                    <span className="text-[9px] font-mono px-1.5 bg-sky-100 text-sky-700 border border-sky-250 rounded font-black">UPI</span>
                   </button>
 
                   <button
                     id="pay-card-btn"
                     type="button"
                     onClick={() => { setPaymentMethod('card'); setAmountPaidInput(''); }}
-                    className={`p-2.5 rounded-xl border font-bold text-left flex items-center justify-between transition-all cursor-pointer ${
+                    className={`p-3 rounded-xl border-2 font-bold text-left flex items-center justify-between transition-all cursor-pointer ${
                       paymentMethod === 'card'
-                        ? 'bg-emerald-50 border-emerald-400 text-emerald-705'
-                        : 'bg-white border-zinc-200 hover:bg-zinc-50 text-zinc-650'
+                        ? 'bg-emerald-50 border-emerald-500 text-emerald-805 shadow-sm'
+                        : 'bg-white border-zinc-200 hover:bg-zinc-50 text-zinc-600'
                     }`}
                   >
                     {t.payCard}
-                    <span className="text-[10px] font-mono px-1 bg-white border border-zinc-200 rounded">CARD</span>
+                    <span className="text-[9px] font-mono px-1.5 bg-purple-100 text-purple-700 border border-purple-250 rounded font-black">CARD</span>
                   </button>
 
                   <button
@@ -545,28 +671,28 @@ export default function SalesTab({ products, customers, sales, lang, onRecordSal
                     type="button"
                     disabled={selectedCustomerId === 'walk-in'}
                     onClick={() => { setPaymentMethod('credit'); setAmountPaidInput('0'); }}
-                    className={`p-2.5 rounded-xl border font-bold text-left flex items-center justify-between transition-all disabled:opacity-40 disabled:cursor-not-allowed cursor-pointer ${
+                    className={`p-3 rounded-xl border-2 font-bold text-left flex items-center justify-between transition-all disabled:opacity-40 disabled:cursor-not-allowed cursor-pointer ${
                       paymentMethod === 'credit'
-                        ? 'bg-rose-50 border-rose-400 text-rose-750'
-                        : 'bg-white border-zinc-200 hover:bg-zinc-50 text-zinc-650'
+                        ? 'bg-rose-50 border-rose-500 text-rose-800 shadow-sm'
+                        : 'bg-white border-zinc-200 hover:bg-zinc-50 text-zinc-600'
                     }`}
                     title={selectedCustomerId === 'walk-in' ? 'Register farmer profile to enable credit sales' : 'Add to farmer pending tab'}
                   >
                     {t.payCredit}
-                    <span className="text-[10px] font-mono px-1 bg-white border border-zinc-200 rounded text-rose-500">TAB</span>
+                    <span className="text-[9px] font-mono px-1.5 bg-rose-100 text-rose-700 border border-rose-250 rounded font-black">TAB/KHATA</span>
                   </button>
                 </div>
               </div>
 
               {/* Amount paid input (Partial payment support for Credit sales / custom payment) */}
               {paymentMethod !== 'credit' && selectedCustomerId !== 'walk-in' && (
-                <div className="space-y-1 bg-zinc-50 p-3 rounded-xl border border-zinc-150">
+                <div className="space-y-1.5 bg-zinc-50 p-3.5 border border-zinc-205 rounded-xl">
                   <div className="flex justify-between items-center">
-                    <label className="text-[10px] font-bold text-zinc-400 uppercase tracking-widest" htmlFor="partial-paid-amt">{t.amountPaidByFarmer} *</label>
-                    <span className="text-[10px] text-zinc-400 italic">Leave empty matches full cash</span>
+                    <label className="text-[10px] font-extrabold text-zinc-500 uppercase tracking-wider" htmlFor="partial-paid-amt">{t.amountPaidByFarmer} *</label>
+                    <span className="text-[9px] text-zinc-400 font-bold uppercase tracking-wider bg-zinc-200 px-1.5 rounded">Full matches empty</span>
                   </div>
                   <div className="relative">
-                    <span className="absolute left-3 top-1/2 -translate-y-1/2 text-zinc-400 font-bold text-xs">₹</span>
+                    <span className="absolute left-3.5 top-1/2 -translate-y-1/2 text-zinc-500 font-black text-xs">₹</span>
                     <input
                       id="partial-paid-amt"
                       type="number"
@@ -575,37 +701,37 @@ export default function SalesTab({ products, customers, sales, lang, onRecordSal
                       max={totalAmount}
                       value={amountPaidInput}
                       onChange={(e) => setAmountPaidInput(e.target.value)}
-                      className="w-full text-xs pl-6 pr-3 py-2 bg-white border border-zinc-200 rounded-lg focus:outline-none"
+                      className="w-full text-xs pl-7 pr-3 py-2.5 bg-white border border-zinc-200 rounded-lg focus:outline-none focus:ring-1 focus:ring-emerald-500 font-bold"
                     />
                   </div>
                   {pendingDebtAddition > 0 && (
-                    <div className="mt-1.5 text-[10px] text-amber-700 font-bold flex items-center gap-1 uppercase">
-                      <BadgeAlert size={12} />
-                      ₹{pendingDebtAddition} balance will be added as Farmer debt!
+                    <div className="mt-1.5 text-[9px] text-rose-805 font-bold flex items-center gap-1 uppercase tracking-wider">
+                      <BadgeAlert size={12} className="text-rose-600 shrink-0" />
+                      ₹{pendingDebtAddition} rest balance will be auto-debited!
                     </div>
                   )}
                 </div>
               )}
 
               {paymentMethod === 'credit' && (
-                <div className="bg-rose-50 border border-rose-200 p-3 rounded-xl text-xs text-rose-800 space-y-1">
-                  <span className="font-bold">Agricultural Credit Sale Note:</span>
-                  <p className="text-zinc-550 leading-snug">
-                    Full amount of <strong className="text-rose-700 font-extrabold">₹{totalAmount}</strong> is recorded as Credit. 
-                    This will be booked to <span className="font-bold">{selectedFarmer?.name}</span>'s profile under village <span className="font-bold">{selectedFarmer?.village}</span>.
+                <div className="bg-rose-50 border-t-2 border-rose-550 p-3 rounded-xl text-xs text-rose-900 space-y-1">
+                  <span className="font-bold text-rose-950">Agricultural Credit (Bahi-Khata ledger):</span>
+                  <p className="text-zinc-650 leading-snug font-medium">
+                    This outstanding total of <strong className="text-rose-700 font-bold">₹{totalAmount}</strong> is recorded as Credit. 
+                    This will be booked to <span className="font-bold text-zinc-900">{selectedFarmer?.name}</span>'s profile under village <span className="font-bold text-zinc-900">{selectedFarmer?.village}</span>.
                   </p>
                 </div>
               )}
 
               <div className="space-y-1">
-                <label className="text-[10px] font-bold text-zinc-400 uppercase tracking-wider" htmlFor="payment-notes">Transaction Remarks (optional)</label>
+                <label className="text-[10px] font-extrabold text-zinc-400 uppercase tracking-wider" htmlFor="payment-notes">Transaction Notes / remarks</label>
                 <input
                   id="payment-notes"
                   type="text"
-                  placeholder="e.g. Subsidy slip attached, paid via son's GPay..."
+                  placeholder="e.g. Paid via crop credit card, subsidy coupon..."
                   value={paymentNotes}
                   onChange={(e) => setPaymentNotes(e.target.value)}
-                  className="w-full text-xs p-2 bg-white border border-zinc-210 rounded-xl focus:outline-none focus:ring-1 focus:ring-emerald-500"
+                  className="w-full text-xs p-2.5 bg-zinc-50 focus:bg-white border-2 border-zinc-250 rounded-xl focus:outline-none focus:border-emerald-500 font-semibold"
                 />
               </div>
             </div>
@@ -614,18 +740,18 @@ export default function SalesTab({ products, customers, sales, lang, onRecordSal
               id="finalize-checkout-btn"
               type="submit"
               disabled={cart.length === 0}
-              className="w-full py-3.5 bg-emerald-600 hover:bg-emerald-700 text-white font-extrabold text-sm rounded-xl shadow-md cursor-pointer transition-colors disabled:opacity-40 disabled:cursor-not-allowed flex items-center justify-center gap-2"
+              className="w-full py-3.5 btn-3d-emerald text-sm text-white"
             >
-              <Receipt size={17} />
+              <Receipt size={16} className="mr-1.5" />
               {t.finalizeBillBtn}
             </button>
           </form>
         </div>
 
         {/* Recent receipts lookup */}
-        <div className="bg-white p-5 border border-zinc-150 rounded-2xl space-y-3">
-          <h3 className="text-xs font-bold text-zinc-500 uppercase tracking-wider flex items-center gap-1">
-            <Receipt size={14} />
+        <div className="tactile-card bg-white p-5 space-y-3">
+          <h3 className="text-xs font-bold text-zinc-450 uppercase tracking-wider flex items-center gap-1.5 font-display">
+            <Receipt size={14} className="text-emerald-700 animate-bounce" />
             {t.recentInvoices}
           </h3>
 

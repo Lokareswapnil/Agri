@@ -75,29 +75,49 @@ export default function StatsGrid({ products, customers, sales, lang, onTabChang
 
 
   return (
-    <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-5" id="stats-grid-container">
+    <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-6" id="stats-grid-container">
       {stats.map((stat) => {
         const Icon = stat.icon;
+        
+        // Match different tactile card highlights depending on the stat
+        let accentBorderColor = 'border-bottom-emerald-600 hover:border-bottom-emerald-700';
+        if (stat.id === 'farmer-credit') accentBorderColor = 'border-bottom-amber-500 hover:border-bottom-amber-600';
+        if (stat.id === 'stock-valuation') accentBorderColor = 'border-bottom-sky-500 hover:border-bottom-sky-600';
+        if (stat.id === 'low-stock' && lowStockProducts.length > 0) accentBorderColor = 'border-bottom-rose-500 hover:border-bottom-rose-600 bg-rose-50/10';
+
         return (
           <button
             key={stat.id}
             id={`stat-card-${stat.id}`}
             onClick={stat.action}
-            className="flex flex-col text-left p-5 bg-white border border-zinc-150 rounded-2xl hover:border-zinc-300 transition-all duration-200 hover:shadow-xs group focus:outline-none"
+            className={`tactile-card hover:-translate-y-1.5 active:translate-y-0.5 relative flex flex-col text-left p-5 bg-white border border-zinc-200/90 rounded-2xl transition-all duration-200 cursor-pointer shadow-[0_6px_12px_rgba(0,0,0,0.02)] group focus:outline-none`}
+            style={{
+              borderBottom: stat.id === 'low-stock' && lowStockProducts.length > 0 
+                ? '5px solid #ef4444' 
+                : stat.id === 'farmer-credit' 
+                ? '5px solid #f59e0b' 
+                : stat.id === 'stock-valuation' 
+                ? '5px solid #0ea5e9' 
+                : '5px solid #10b981'
+            }}
           >
+            {/* Top gradient highlight banner */}
+            <div className="absolute top-0 left-0 right-0 h-1.5 rounded-t-2xl bg-gradient-to-r opacity-20 from-transparent via-white/50 to-transparent" />
+
             <div className="flex items-center justify-between w-full">
-              <span className="text-zinc-500 text-xs font-semibold tracking-wider uppercase">{stat.name}</span>
-              <div className={`p-2 rounded-xl border ${stat.color} transition-colors`}>
-                <Icon size={18} className="stroke-[2.2]" />
+              <span className="text-zinc-500 text-[10px] sm:text-xs font-bold tracking-wider uppercase font-display">{stat.name}</span>
+              <div className={`p-2.5 rounded-xl border-2 shadow-[0_3px_0_rgba(0,0,0,0.05)] ${stat.color} transition-all duration-200 group-hover:scale-110`}>
+                <Icon size={16} className="stroke-[2.5]" />
               </div>
             </div>
             
             <div className="mt-4 flex items-baseline">
-              <span className="text-2xl font-bold text-zinc-900 tracking-tight">{stat.value}</span>
+              <span className="text-2xl sm:text-3xl font-display font-extrabold text-zinc-900 tracking-tight leading-none">{stat.value}</span>
             </div>
             
-            <div className="mt-2 text-xs text-zinc-400 font-medium group-hover:text-zinc-600 transition-colors">
-              {stat.change} &rarr;
+            <div className="mt-3 flex items-center justify-between text-[11px] text-zinc-500 font-bold tracking-normal group-hover:text-zinc-700 transition-colors bg-zinc-50/80 px-2 py-1 rounded-lg border border-zinc-100">
+              <span>{stat.change}</span>
+              <span className="text-emerald-600 font-extrabold group-hover:translate-x-1 transition-transform">Details &rarr;</span>
             </div>
           </button>
         );

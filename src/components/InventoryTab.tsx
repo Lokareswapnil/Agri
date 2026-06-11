@@ -333,47 +333,48 @@ export default function InventoryTab({ products, logs, lang, onAddProduct, onEdi
             <div
               key={p.id}
               id={`product-card-${p.id}`}
-              className={`flex flex-col bg-white border rounded-2xl shadow-2xs hover:shadow-xs transition-all duration-200 overflow-hidden ${
-                isOut 
-                  ? 'border-rose-300 ring-1 ring-rose-50' 
+              className={`tactile-card flex flex-col bg-white border-2 rounded-2xl transition-all duration-200 overflow-hidden group hover:-translate-y-1`}
+              style={{
+                borderBottom: isOut 
+                  ? '5px solid #ef4444' 
                   : isLow 
-                  ? 'border-amber-300 ring-1 ring-amber-50' 
-                  : 'border-zinc-150'
-              }`}
+                  ? '5px solid #f59e0b' 
+                  : '5px solid #10b981'
+              }}
             >
               {/* Product Header Card */}
               <div className="p-5 flex-1 space-y-4">
                 <div className="flex items-start justify-between gap-2">
-                  <div className="space-y-1">
-                    <span className={`inline-flex px-2 py-0.5 rounded-full text-[10px] font-bold border capitalize ${getCategoryColor(p.category)}`}>
+                  <div className="space-y-1.5">
+                    <span className={`inline-flex px-2 py-0.5 rounded-full text-[10px] font-bold border-2 capitalize tracking-wide select-none ${getCategoryColor(p.category)}`}>
                       {p.category}
                     </span>
-                    <h4 className="text-base font-bold text-zinc-900 tracking-tight leading-snug">{p.name}</h4>
+                    <h4 className="text-base font-display font-extrabold text-zinc-900 tracking-tight leading-snug group-hover:text-emerald-805 transition-colors">{p.name}</h4>
                   </div>
                   
                   {isLow && (
-                    <span className={`inline-flex items-center gap-1 px-2.5 py-1 rounded-lg text-xs font-semibold uppercase ${
-                      isOut ? 'bg-rose-100 text-rose-800' : 'bg-amber-100 text-amber-800'
+                    <span className={`inline-flex items-center gap-1.5 px-2.5 py-1 rounded-lg text-[10px] font-bold uppercase tracking-wider select-none ${
+                      isOut ? 'bg-rose-50 text-rose-800 border-2 border-rose-200' : 'bg-amber-50 text-amber-800 border-2 border-amber-200'
                     }`}>
-                      <AlertTriangle size={13} className="shrink-0" />
+                      <AlertTriangle size={12} className="shrink-0 text-amber-600" />
                       {isOut ? 'Out of Stock' : 'Low Stock'}
                     </span>
                   )}
                 </div>
 
-                <div className="text-zinc-500 text-xs line-clamp-2 h-8 leading-relaxed">
+                <div className="text-zinc-500 text-xs line-clamp-2 h-8 leading-relaxed font-semibold">
                   {p.description || 'No additional composition details provided.'}
                 </div>
 
-                {/* Technical data attributes */}
-                <div className="grid grid-cols-2 gap-y-2 gap-x-4 bg-zinc-50/50 p-2.5 rounded-xl border border-zinc-100 text-xs">
+                {/* Technical data attributes as physical tags */}
+                <div className="grid grid-cols-2 gap-y-2 gap-x-4 bg-zinc-50/50 p-3 rounded-xl border border-zinc-200/80 text-[11px] font-semibold">
                   <div>
-                    <span className="text-zinc-400">Mfg / Brand:</span>
-                    <p className="font-semibold text-zinc-700 truncate">{p.manufacturer || 'N/A'}</p>
+                    <span className="text-zinc-400 font-bold block uppercase tracking-wider text-[9px]">Mfg / Brand:</span>
+                    <p className="font-extrabold text-zinc-700 truncate">{p.manufacturer || 'N/A'}</p>
                   </div>
                   <div>
-                    <span className="text-zinc-400">Batch / Expiry:</span>
-                    <p className={`font-semibold truncate ${p.expiryDate && new Date(p.expiryDate) < new Date() ? 'text-rose-600 font-bold' : 'text-zinc-700'}`}>
+                    <span className="text-zinc-400 font-bold block uppercase tracking-wider text-[9px]">Batch / Expiry:</span>
+                    <p className={`font-extrabold truncate ${p.expiryDate && new Date(p.expiryDate) < new Date() ? 'text-rose-600 font-bold bg-rose-50 border border-rose-100 rounded px-1' : 'text-zinc-750'}`}>
                       {p.expiryDate ? `${p.batchNumber || 'N/A'} (Exp: ${p.expiryDate})` : `${p.batchNumber || 'N/A'}`}
                     </p>
                   </div>
@@ -381,15 +382,15 @@ export default function InventoryTab({ products, logs, lang, onAddProduct, onEdi
 
                 {/* Stock Level Indicator line */}
                 <div className="space-y-1.5">
-                  <div className="flex justify-between items-center text-xs">
-                    <span className="text-zinc-400">{t.availableInventory}:</span>
-                    <span className="font-bold text-zinc-900">
-                      {p.stock} <span className="font-medium text-zinc-500">{p.unit}</span>
+                  <div className="flex justify-between items-center text-xs font-bold text-zinc-500">
+                    <span className="uppercase text-[10px] tracking-wider">{t.availableInventory}:</span>
+                    <span className="font-extrabold text-zinc-900 bg-zinc-100 px-2 py-0.5 rounded-lg border">
+                      {p.stock} <span className="text-zinc-500">{p.unit}</span>
                     </span>
                   </div>
                   
                   {/* custom visual bar */}
-                  <div className="h-1.5 w-full bg-zinc-100 rounded-full overflow-hidden">
+                  <div className="h-2 w-full bg-zinc-100 rounded-full overflow-hidden border border-zinc-200/40">
                     <div 
                       className={`h-full rounded-full transition-all duration-500 ${
                         isOut ? 'bg-rose-500' : isLow ? 'bg-amber-500' : 'bg-emerald-500'
@@ -397,51 +398,51 @@ export default function InventoryTab({ products, logs, lang, onAddProduct, onEdi
                       style={{ width: `${Math.min((p.stock / Math.max(p.minStockAlert * 3, 50)) * 100, 100)}%` }}
                     />
                   </div>
-                  <div className="flex justify-between text-[10px] text-zinc-400">
+                  <div className="flex justify-between text-[10px] text-zinc-400 font-bold">
                     <span>{t.alertLimit}: {p.minStockAlert} {p.unit}</span>
-                    {isLow && p.stock > 0 && <span className="text-amber-600 font-bold">⚠️ Low Stock!</span>}
+                    {isLow && p.stock > 0 && <span className="text-amber-650 font-bold animate-pulse">⚠️ Low Stock!</span>}
                   </div>
                 </div>
 
                 {/* Financial details row */}
-                <div className="grid grid-cols-3 divide-x divide-zinc-100 border-t border-zinc-100 pt-3">
+                <div className="grid grid-cols-3 divide-x divide-zinc-200/60 border-t border-zinc-200/60 pt-3">
                   <div className="text-left pr-2">
-                    <span className="text-[10px] text-zinc-400 block uppercase font-medium">{t.costPriceLabel}</span>
-                    <span className="text-sm font-semibold text-zinc-650">₹{p.costPrice}</span>
+                    <span className="text-[10px] text-zinc-450 block uppercase font-bold tracking-wider">{t.costPriceLabel}</span>
+                    <span className="text-xs sm:text-sm font-bold text-zinc-500 font-mono">₹{p.costPrice}</span>
                   </div>
                   <div className="text-left pl-3 pr-2">
-                    <span className="text-[10px] text-zinc-400 block uppercase font-medium">{t.sellPriceLabel}</span>
-                    <span className="text-sm font-bold text-zinc-905">₹{p.sellPrice}</span>
+                    <span className="text-[10px] text-zinc-450 block uppercase font-bold tracking-wider">{t.sellPriceLabel}</span>
+                    <span className="text-xs sm:text-sm font-extrabold text-zinc-900 font-mono">₹{p.sellPrice}</span>
                   </div>
                   <div className="text-left pl-3">
-                    <span className="text-[10px] text-zinc-400 block uppercase font-medium">{t.profitMarginLabel}</span>
-                    <span className="text-sm font-bold text-emerald-600">
+                    <span className="text-[10px] text-zinc-450 block uppercase font-bold tracking-wider">{t.profitMarginLabel}</span>
+                    <span className="text-xs sm:text-sm font-black text-emerald-700 bg-emerald-50 px-1 rounded">
                       {calculateMargin(p.costPrice, p.sellPrice)}%
                     </span>
                   </div>
                 </div>
               </div>
 
-              {/* Card actions footer panel */}
-              <div className="bg-zinc-50 border-t border-zinc-100 px-4 py-3 flex gap-2 justify-between">
+              {/* Card actions footer panel with actual tactile buttons */}
+              <div className="bg-zinc-50 border-t border-zinc-200 px-4 py-3.5 flex gap-2 justify-between items-center">
                 <button
                   id={`quick-restock-btn-${p.id}`}
                   onClick={() => {
                     setRestockProduct(p);
                     setRestockQty(p.minStockAlert * 2 || 20);
                   }}
-                  className="px-3 py-1.5 bg-white border border-zinc-200 hover:border-zinc-300 text-zinc-700 text-xs font-semibold rounded-lg flex items-center gap-1 transition-colors cursor-pointer"
+                  className="px-3.5 py-1.5 cursor-pointer bg-white border-2 border-zinc-250 hover:border-emerald-500 font-display font-extrabold text-[11px] text-zinc-700 hover:text-emerald-805 rounded-xl flex items-center gap-1.5 transition-all shadow-[0_2px_0_rgba(0,0,0,0.04)] active:translate-y-0.5 active:shadow-none"
                 >
-                  <PackageCheck size={14} className="text-emerald-500" />
+                  <PackageCheck size={13} className="text-emerald-600" />
                   {t.quickStockInBtn}
                 </button>
 
                 <button
                   id={`edit-product-btn-${p.id}`}
                   onClick={() => handleOpenEdit(p)}
-                  className="px-3 py-1.5 text-zinc-500 hover:text-zinc-800 text-xs font-semibold hover:underline cursor-pointer"
+                  className="px-2 py-1.5 text-zinc-500 hover:text-emerald-700 text-xs font-bold hover:underline cursor-pointer"
                 >
-                  {t.changeDetailsBtn}
+                  {t.changeDetailsBtn} &rarr;
                 </button>
               </div>
             </div>

@@ -30,6 +30,7 @@ import { TRANSLATIONS, Language } from './translations';
 import StatsGrid from './components/StatsGrid';
 import InventoryTab from './components/InventoryTab';
 import SalesTab from './components/SalesTab';
+import VoiceAssistant from './components/VoiceAssistant';
 
 export default function App() {
   const [lang, setLang] = useState<Language>(() => {
@@ -81,6 +82,115 @@ export default function App() {
 
   // Tally Dense UI mode state
   const [denseMode, setDenseMode] = useState<boolean>(false);
+
+  // --- Support triggers from Krishi-AI Voice Assistant ---
+  const [aiCartTrigger, setAiCartTrigger] = useState<{ productId: string; quantity: number; timestamp: number } | null>(null);
+  const [aiCustomerTrigger, setAiCustomerTrigger] = useState<{ customerId: string; timestamp: number } | null>(null);
+  const [aiCheckoutTrigger, setAiCheckoutTrigger] = useState<{ timestamp: number; paymentMethod?: 'cash' | 'card' | 'credit' | 'upi' } | null>(null);
+
+  const handleAIExecuteAction = (action: any, spokenReply: string) => {
+    if (!action || !action.type) return;
+
+    switch (action.type) {
+      case 'ADD_STOCK': {
+        if (action.productId && action.quantity > 0) {
+          handleQuickRestock(action.productId, action.quantity, "Restocked via Krishi-AI Voice Assistant Command.");
+          setActiveTab('inventory');
+        }
+        break;
+      }
+      case 'ADD_TO_CART': {
+        if (action.productId && action.quantity > 0) {
+          setAiCartTrigger({
+            productId: action.productId,
+            quantity: action.quantity,
+            timestamp: Date.now()
+          });
+          
+          if (action.customerId) {
+            setAiCustomerTrigger({
+              customerId: action.customerId,
+              timestamp: Date.now()
+            });
+          } else {
+            setAiCustomerTrigger(null);
+          }
+          setActiveTab('sales');
+        }
+        break;
+      }
+      case 'CREATE_BILL': {
+        if (action.productId && action.quantity > 0) {
+          setAiCartTrigger({
+            productId: action.productId,
+            quantity: action.quantity,
+            timestamp: Date.now()
+          });
+        }
+        
+        if (action.customerId) {
+          setAiCustomerTrigger({
+            customerId: action.customerId,
+            timestamp: Date.now()
+          });
+        } else if (action.customerName) {
+          const newFarmer = handleQuickRegisterCustomer({
+            name: action.customerName,
+            phone: action.customerPhone || '',
+            village: action.customerVillage || '',
+            debt: 0
+          });
+          setAiCustomerTrigger({
+            customerId: newFarmer.id,
+            timestamp: Date.now()
+          });
+        } else {
+          setAiCustomerTrigger(null);
+        }
+
+        setAiCheckoutTrigger({
+          timestamp: Date.now(),
+          paymentMethod: action.paymentMethod || 'cash'
+        });
+
+        setActiveTab('sales');
+        break;
+      }
+      case 'REGISTER_FARMER': {
+        if (action.customerName) {
+          const newFarmer = handleQuickRegisterCustomer({
+            name: action.customerName,
+            phone: action.customerPhone || '',
+            village: action.customerVillage || '',
+            debt: 0
+          });
+          
+          setSelectedFarmerId(newFarmer.id);
+          setActiveTab('customers');
+        }
+        break;
+      }
+      case 'VIEW_FARMER': {
+        if (action.customerId) {
+          setSelectedFarmerId(action.customerId);
+          setActiveTab('customers');
+        }
+        break;
+      }
+      case 'NAVIGATE': {
+        if (action.tab) {
+          setActiveTab(action.tab);
+        }
+        break;
+      }
+      case 'CHECK_STOCK': {
+        setActiveTab('inventory');
+        break;
+      }
+      default:
+        break;
+    }
+  };
 
   // --- Synchronization effects ---
   useEffect(() => {
@@ -705,6 +815,9 @@ export default function App() {
               lang={lang}
               onRecordSale={handleRecordSale}
               onQuickRegisterCustomer={handleQuickRegisterCustomer}
+              aiCartTrigger={aiCartTrigger}
+              aiCustomerTrigger={aiCustomerTrigger}
+              aiCheckoutTrigger={aiCheckoutTrigger}
             />
           </div>
         )}
@@ -798,10 +911,10 @@ export default function App() {
                       key={farmer.id}
                       id={`farmer-khata-card-${farmer.id}`}
                       onClick={() => setSelectedFarmerId(farmer.id)}
-                      className={`w-full text-left p-3.5 rounded-xl border transition-all flex justify-between items-center focus:outline-none ${
+                      className={`w-full text-left p-4 rounded-xl border-2 transition-all flex justify-between items-center focus:outline-none cursor-pointer hover:border-emerald-500 hover:-translate-y-0.5 active:translate-y-0 ${
                         isSelected 
-                          ? 'border-emerald-500 bg-emerald-50/20 ring-1 ring-emerald-500/10 shadow-xs' 
-                          : 'border-zinc-150 bg-white hover:bg-zinc-50/50'
+                          ? 'border-emerald-600 bg-emerald-50/20 shadow-xs' 
+                          : 'border-zinc-250 bg-white hover:bg-zinc-50/50 shadow-[0_2px_0_rgba(0,0,0,0.04)]'
                       }`}
                     >
                       <div className="space-y-1.5">
@@ -1046,6 +1159,14 @@ export default function App() {
           </p>
         </div>
       </footer>
+
+      {/* Krishi AI Voice & Text Bilingual Assistant floating controller */}
+      <VoiceAssistant 
+        products={products}
+        customers={customers}
+        lang={lang}
+        onExecuteAction={handleAIExecuteAction}
+      />
     </div>
   );
 }

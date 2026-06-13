@@ -31,6 +31,7 @@ import StatsGrid from './components/StatsGrid';
 import InventoryTab from './components/InventoryTab';
 import SalesTab from './components/SalesTab';
 import VoiceAssistant from './components/VoiceAssistant';
+import CreditReminderCard from './components/CreditReminderCard';
 
 export default function App() {
   const [lang, setLang] = useState<Language>(() => {
@@ -79,6 +80,10 @@ export default function App() {
   const [settlePaymentMethod, setSettlePaymentMethod] = useState<'cash' | 'upi'>('cash');
   const [settleNotes, setSettleNotes] = useState<string>('');
   const [isSettleModalOpen, setIsSettleModalOpen] = useState<boolean>(false);
+
+  // Farmer filter/search configuration
+  const [farmerSearchQuery, setFarmerSearchQuery] = useState<string>('');
+  const [showOnlyWithDebt, setShowOnlyWithDebt] = useState<boolean>(true);
 
   // Tally Dense UI mode state
   const [denseMode, setDenseMode] = useState<boolean>(false);
@@ -174,6 +179,23 @@ export default function App() {
         if (action.customerId) {
           setSelectedFarmerId(action.customerId);
           setActiveTab('customers');
+        }
+        break;
+      }
+      case 'TRIGGER_REMINDER': {
+        if (action.customerId) {
+          setSelectedFarmerId(action.customerId);
+          setActiveTab('customers');
+          
+          setTimeout(() => {
+            const event = new CustomEvent('krishi-voice-trigger-reminder', {
+              detail: {
+                farmerId: action.customerId,
+                type: action.reminderType || 'call'
+              }
+            });
+            window.dispatchEvent(event);
+          }, 350);
         }
         break;
       }
@@ -422,7 +444,19 @@ export default function App() {
   const lowStockProducts = products.filter(p => p.stock <= p.minStockAlert);
   const totalOutstandingTabs = customers.reduce((sum, c) => sum + (c.debt || 0), 0);
   const selectedFarmerObj = selectedFarmerId ? customers.find(c => c.id === selectedFarmerId) : null;
-  const selectedFarmerSales = selectedFarmerId ? sales.filter(s => s.customerId === selectedFarmerId) : [];  return (
+  const selectedFarmerSales = selectedFarmerId ? sales.filter(s => s.customerId === selectedFarmerId) : [];
+
+  const filteredFarmers = customers.filter(farmer => {
+    const matchesSearch = farmer.name.toLowerCase().includes(farmerSearchQuery.toLowerCase()) ||
+                         (farmer.village && farmer.village.toLowerCase().includes(farmerSearchQuery.toLowerCase())) ||
+                         (farmer.phone && farmer.phone.includes(farmerSearchQuery));
+    if (showOnlyWithDebt) {
+      return matchesSearch && farmer.debt > 0;
+    }
+    return matchesSearch;
+  });
+
+  return (
     <div className="min-h-screen bg-zinc-50 flex flex-col font-sans text-zinc-900 selection:bg-emerald-100 selection:text-emerald-900" id="tally-app-root">
       
       {/* Visual Header & Tally Navigation bar */}
@@ -886,25 +920,57 @@ export default function App() {
             
             {/* Left Column: Farmers catalogue with outstanding debt dials */}
             <div className="lg:col-span-4 bg-white p-5 border border-zinc-150 rounded-2xl h-[650px] flex flex-col">
-              <div className="pb-3 border-b border-zinc-100 space-y-2">
-                <h2 className="text-sm font-bold text-zinc-400 uppercase tracking-wider">Farmer Credit Accounts</h2>
+              <div className="pb-3 border-b border-zinc-100 space-y-3">
+                <div className="flex justify-between items-center">
+                  <h2 className="text-sm font-bold text-zinc-800 uppercase tracking-wider">
+                    {lang === 'mr' ? 'उधारी बही खाते' : lang === 'hi' ? 'उधारी बही खाता' : 'Farmer Credit Accounts'}
+                  </h2>
+                  <span className="text-[10px] font-bold bg-rose-50 text-rose-700 px-2 py-0.5 rounded-full border border-rose-100">
+                    {customers.filter(c => c.debt > 0).length} active
+                  </span>
+                </div>
                 <div className="relative">
                   <Search className="absolute left-3 top-1/2 -translate-y-1/2 text-zinc-400" size={14} />
                   <input
                     id="farmer-khata-search-input"
                     type="text"
+                    value={farmerSearchQuery}
+                    onChange={(e) => setFarmerSearchQuery(e.target.value)}
                     placeholder="Search master ledger by name or town..."
-                    className="w-full pl-9 pr-3 py-2 bg-zinc-50 border border-zinc-200 rounded-xl text-xs placeholder-zinc-400"
-                    onChange={(e) => {
-                      // Simple inline toggle or filter
-                    }}
+                    className="w-full pl-9 pr-3 py-2 bg-zinc-50 border-2 border-zinc-200 focus:border-emerald-500 rounded-xl text-xs placeholder-zinc-400 focus:outline-none font-bold"
                   />
+                </div>
+
+                {/* Filter toggle pills to address the ₹0 debt farmer visibility preference */}
+                <div className="grid grid-cols-2 gap-1 p-1 bg-zinc-100 rounded-xl text-[11px] font-bold">
+                  <button
+                    type="button"
+                    onClick={() => setShowOnlyWithDebt(true)}
+                    className={`py-1.5 rounded-lg text-center cursor-pointer transition-all ${
+                      showOnlyWithDebt
+                        ? 'bg-rose-600 text-white shadow-xs'
+                        : 'text-zinc-500 hover:text-zinc-800 hover:bg-zinc-50/50'
+                    }`}
+                  >
+                    {lang === 'mr' ? 'थकीत उधारी' : lang === 'hi' ? 'बकाया उधारी' : 'Outstanding dues'}
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => setShowOnlyWithDebt(false)}
+                    className={`py-1.5 rounded-lg text-center cursor-pointer transition-all ${
+                      !showOnlyWithDebt
+                        ? 'bg-zinc-800 text-white shadow-xs'
+                        : 'text-zinc-500 hover:text-zinc-800 hover:bg-zinc-50/50'
+                    }`}
+                  >
+                    {lang === 'mr' ? 'सर्व शेतकरी' : lang === 'hi' ? 'सभी किसान' : 'All/Paid Accounts'}
+                  </button>
                 </div>
               </div>
 
               {/* Farmers list body */}
               <div className="flex-1 overflow-y-auto mt-3 space-y-2.5 pr-1">
-                {customers.map((farmer) => {
+                {filteredFarmers.map((farmer) => {
                   const isSelected = selectedFarmerId === farmer.id;
                   return (
                     <button
@@ -934,6 +1000,21 @@ export default function App() {
                     </button>
                   );
                 })}
+
+                {filteredFarmers.length === 0 && (
+                  <div className="text-center py-12 px-4 space-y-3">
+                    <p className="text-xs text-zinc-450 font-bold">No farmer accounts found matching your filters.</p>
+                    {showOnlyWithDebt && (
+                      <button
+                        type="button"
+                        onClick={() => setShowOnlyWithDebt(false)}
+                        className="px-3 py-1.5 bg-zinc-100 hover:bg-zinc-200 text-zinc-700 text-xs font-bold rounded-lg border cursor-pointer"
+                      >
+                        Show Settled & Paid Accounts
+                      </button>
+                    )}
+                  </div>
+                )}
               </div>
             </div>
 
@@ -988,6 +1069,9 @@ export default function App() {
                       </strong>
                     </div>
                   </div>
+
+                  {/* Dynamic outstanding credit bill trackers, payment promised due dates, and reminders dispatcher */}
+                  <CreditReminderCard customer={selectedFarmerObj} sales={sales} lang={lang} />
 
                   {/* Chronological transaction history list */}
                   <div className="space-y-3">

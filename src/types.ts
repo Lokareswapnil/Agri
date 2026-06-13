@@ -44,6 +44,9 @@ export interface Sale {
   paymentMethod: 'cash' | 'card' | 'credit' | 'upi';
   date: string; // ISO DateTime string
   notes?: string;
+  dueDate?: string; // YYYY-MM-DD when farmer promised to clear credit
+  reminderSent?: boolean; // track if SMS/WhatsApp reminder sent
+  lastReminderDate?: string; // ISO string when reminder was last triggered
 }
 
 export interface InventoryLog {

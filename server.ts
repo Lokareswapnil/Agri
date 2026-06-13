@@ -204,6 +204,45 @@ async function startServer() {
     }
 
     if (action.type === "NONE") {
+      // 1b. Check for credit outstanding reminders or phone calls
+      const isCall = cmd.includes("कॉल") || cmd.includes("फोन") || cmd.includes("call") || cmd.includes("phone") || cmd.includes("dial") || cmd.includes("संपर्क");
+      const isSmsMsg = cmd.includes("स्मरणपत्र") || cmd.includes("मेसेज") || cmd.includes("संदेश") || cmd.includes("whatsapp") || cmd.includes("sms") || cmd.includes("remind") || cmd.includes("reminder") || cmd.includes("alert") || cmd.includes("उधारी मागा");
+      
+      if (isCall || isSmsMsg) {
+        // Find closest farmer with outstanding debt
+        let matchedFarmer = null;
+        if (customers && customers.length > 0) {
+          // Filter first who has debt > 0
+          const debtFarmers = customers.filter(c => c.debt > 0);
+          matchedFarmer = debtFarmers.find(c => {
+            const nameLower = c.name.toLowerCase();
+            return cmd.includes(nameLower) || nameLower.split(/\s+/).some((w: string) => w.length > 2 && cmd.includes(w));
+          });
+          // If no specific name matched, just find the first customer with positive debt
+          if (!matchedFarmer && debtFarmers.length > 0) {
+            matchedFarmer = debtFarmers[0];
+          }
+        }
+        
+        if (matchedFarmer) {
+          const rType = cmd.includes("whatsapp") ? "whatsapp" : isCall ? "call" : "sms";
+          action = {
+            type: "TRIGGER_REMINDER",
+            customerId: matchedFarmer.id,
+            reminderType: rType
+          };
+          spokenReply = lang === 'mr'
+            ? `${matchedFarmer.name} यांच्या खात्यावरील ₹${matchedFarmer.debt} थकीत उधारीसाठी ${rType === 'call' ? 'ऑटोमॅटिक व्हॉईस कॉल' : rType === 'whatsapp' ? 'व्हॉट्सॲप मेसेज' : 'एसएमएस संदेश'} सुरू करत आहे.`
+            : lang === 'hi'
+            ? `${matchedFarmer.name} के खाते की ₹${matchedFarmer.debt} बकाया उधारी के लिए ${rType === 'call' ? 'ऑटोमैटिक वॉयस कॉल' : rType === 'whatsapp' ? 'व्हाट्सएप संदेश' : 'एसएमएस अनुस्मारक'} शुरू कर रहे हैं।`
+            : `Starting direct ${rType} collection reminder to ${matchedFarmer.name} for outstanding debt of ₹${matchedFarmer.debt}.`;
+            
+          return { action, spokenReply };
+        }
+      }
+    }
+
+    if (action.type === "NONE") {
       if (isCreateBill || cmd.includes("checkout") || cmd.includes("finalise") || cmd.includes("checked out")) {
         action = {
           type: "CREATE_BILL",
@@ -249,6 +288,104 @@ async function startServer() {
     return { action, spokenReply };
   }
 
+  // Real Twilio Trigger Endpoint for Automated Voice Calls and SMS
+  app.post("/api/reminders/trigger", async (req, res) => {
+    const { phone, message, type } = req.body;
+    
+    if (!phone || !message) {
+      return res.status(400).json({ success: false, error: "Phone number and reminder message are required." });
+    }
+
+    const { TWILIO_ACCOUNT_SID, TWILIO_AUTH_TOKEN, TWILIO_PHONE_NUMBER } = process.env;
+
+    if (!TWILIO_ACCOUNT_SID || !TWILIO_AUTH_TOKEN || !TWILIO_PHONE_NUMBER) {
+      console.warn("[Twilio Server] Credentials missing in environment variables. Replying with unconfigured parameters.");
+      return res.json({
+        success: false,
+        status: "unconfigured",
+        message: "Twilio credentials are not set up yet. Please configure TWILIO_ACCOUNT_SID, TWILIO_AUTH_TOKEN, and TWILIO_PHONE_NUMBER in the environment variables (Secrets panel)."
+      });
+    }
+
+    // Format phone number with Indian country code (+91) if it is 10 digits and lacks country prefix
+    let formattedPhone = phone.trim().replace(/\s+/g, "");
+    if (formattedPhone.length === 10 && !formattedPhone.startsWith("+")) {
+      formattedPhone = "+91" + formattedPhone;
+    } else if (!formattedPhone.startsWith("+")) {
+      formattedPhone = "+" + formattedPhone;
+    }
+
+    try {
+      const basicAuth = Buffer.from(`${TWILIO_ACCOUNT_SID}:${TWILIO_AUTH_TOKEN}`).toString("base64");
+      
+      if (type === "sms") {
+        console.log(`[Twilio Server] Dispatching real SMS reminder to ${formattedPhone}...`);
+        const url = `https://api.twilio.com/2010-04-01/Accounts/${TWILIO_ACCOUNT_SID}/Messages.json`;
+        
+        const params = new URLSearchParams();
+        params.append("To", formattedPhone);
+        params.append("From", TWILIO_PHONE_NUMBER);
+        params.append("Body", message);
+
+        const response = await fetch(url, {
+          method: "POST",
+          headers: {
+            "Authorization": `Basic ${basicAuth}`,
+            "Content-Type": "application/x-www-form-urlencoded"
+          },
+          body: params.toString()
+        });
+
+        const data = await response.json();
+        if (!response.ok) {
+          throw new Error(data.message || `Twilio HTTP ${response.status}`);
+        }
+
+        console.log("[Twilio Server] Real SMS initiated successfully: ", data.sid);
+        return res.json({ success: true, sid: data.sid, message: "SMS dispatched successfully over Twilio cellular carrier." });
+      } else {
+        console.log(`[Twilio Server] Dispatching real outbound voice call to ${formattedPhone}...`);
+        const url = `https://api.twilio.com/2010-04-01/Accounts/${TWILIO_ACCOUNT_SID}/Calls.json`;
+        
+        // Generate TwiML instructions for automated speech playback
+        // We use Polly.Aditi voice which sounds incredible in Marathi/Hindi/Indian accents
+        const cleanMsgForTwiml = message.replace(/"/g, "&quot;").replace(/'/g, "&apos;").replace(/</g, "&lt;").replace(/>/g, "&gt;");
+        const twiml = `<Response>
+          <Pause length="1"/>
+          <Say voice="Polly.Aditi" language="hi-IN">${cleanMsgForTwiml}</Say>
+          <Pause length="1"/>
+          <Say voice="Polly.Aditi" language="hi-IN">कृप्या लवकरात लवकर आपले येणे जमा करावे. धन्यवाद.</Say>
+          <Pause length="1"/>
+        </Response>`;
+
+        const params = new URLSearchParams();
+        params.append("To", formattedPhone);
+        params.append("From", TWILIO_PHONE_NUMBER);
+        params.append("Twiml", twiml);
+
+        const response = await fetch(url, {
+          method: "POST",
+          headers: {
+            "Authorization": `Basic ${basicAuth}`,
+            "Content-Type": "application/x-www-form-urlencoded"
+          },
+          body: params.toString()
+        });
+
+        const data = await response.json();
+        if (!response.ok) {
+          throw new Error(data.message || `Twilio HTTP ${response.status}`);
+        }
+
+        console.log("[Twilio Server] Real voice call initiated successfully: ", data.sid);
+        return res.json({ success: true, sid: data.sid, message: "Real cellular phone call initiated successfully via Twilio voice network. The farmer is currently being dialed." });
+      }
+    } catch (error: any) {
+      console.error("[Twilio Server] Twilio request failed:", error);
+      return res.status(500).json({ success: false, error: error.message || "Failed to make outbound carrier request." });
+    }
+  });
+
   // REST API Endpoint for AI speech/text command parsing
   app.post("/api/ai/command", async (req, res) => {
     const { command, products, customers, lang } = req.body;
@@ -277,7 +414,8 @@ Rules:
 5. "REGISTER_FARMER": User wants to add a new farmer's profile. E.g., "नवीन शेतकरी दिनकर पाटील गाव फलटण नोंदणी करा". Identify farmer name, village (if any), and phone (if 10-digit number present).
 6. "VIEW_FARMER": User wants to view a specific farmer's detailed Khata. E.g., "राजू सावंत चा बहीखाता दाखवा", "Suresh Kumar details profile open kar". Find the match customer ID.
 7. "CHECK_STOCK": User asks about inventory left. E.g., "युरिया किती शिल्लक आहे?", "how much stock of potash is there?". Match product ID. Your spokenReply should give details of current stock from context.
-8. "NONE": Fallback for greetings, calculations, etc.
+8. "TRIGGER_REMINDER": User wants to contact a farmer to pay credit or check about outstanding balance. E.g. "राजू पाटील ला थकबाकी साठी फोन करा", "remind Ramesh about outstanding", "Saurabh contact check dues", "please call credit outstanding amount". Match customerId from context and determine reminderType ('sms', 'whatsapp', or 'call').
+9. "NONE": Fallback for greetings, calculations, etc.
 
 Database Context Catalog:
 Products list: ${JSON.stringify(products?.map((p: any) => ({ id: p.id, name: p.name, stock: p.stock, unit: p.unit, category: p.category, price: p.sellPrice })))}
@@ -299,7 +437,7 @@ Customers list: ${JSON.stringify(customers?.map((c: any) => ({ id: c.id, name: c
                 properties: {
                   type: {
                     type: Type.STRING,
-                    description: "The parsed task type: 'ADD_STOCK', 'ADD_TO_CART', 'CREATE_BILL', 'NAVIGATE', 'REGISTER_FARMER', 'VIEW_FARMER', 'CHECK_STOCK', 'NONE'"
+                    description: "The parsed task type: 'ADD_STOCK', 'ADD_TO_CART', 'CREATE_BILL', 'NAVIGATE', 'REGISTER_FARMER', 'VIEW_FARMER', 'CHECK_STOCK', 'TRIGGER_REMINDER', 'NONE'"
                   },
                   productId: {
                     type: Type.STRING,
@@ -328,6 +466,10 @@ Customers list: ${JSON.stringify(customers?.map((c: any) => ({ id: c.id, name: c
                   tab: {
                     type: Type.STRING,
                     description: "Target tab to navigate to (dashboard, sales, inventory, alerts, customers)."
+                  },
+                  reminderType: {
+                    type: Type.STRING,
+                    description: "For TRIGGER_REMINDER, the type of communication ('sms', 'whatsapp', or 'call'). Default 'call'."
                   }
                 },
                 required: ["type"]

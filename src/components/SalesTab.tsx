@@ -115,7 +115,8 @@ export default function SalesTab({
         totalAmount,
         amountPaid: parsedPaymentMethod === 'credit' ? 0 : totalAmount,
         paymentMethod: parsedPaymentMethod,
-        notes: lang === 'mr' ? "कृषी-एआय व्हॉइस असिस्टंट द्वारे स्वयंचलित बिलिंग." : lang === 'hi' ? "कृषि-एआई वॉइस असिस्टेंट द्वारा स्वचालित बिलिंग।" : "Automated billing via Krishi-AI Voice Assistant."
+        notes: lang === 'mr' ? "कृषी-एआय व्हॉइस असिस्टंट द्वारे स्वयंचलित बिलिंग." : lang === 'hi' ? "कृषि-एआई वॉइस असिस्टेंट द्वारा स्वचालित बिलिंग।" : "Automated billing via Krishi-AI Voice Assistant.",
+        dueDate: parsedPaymentMethod === 'credit' ? getOneMonthLaterDateStr() : undefined
       };
 
       console.log("[Auto-Checkout] Complete compiler recording:", compiledSale);
@@ -151,6 +152,14 @@ export default function SalesTab({
   const [paymentMethod, setPaymentMethod] = useState<'cash' | 'card' | 'credit' | 'upi'>('cash');
   const [amountPaidInput, setAmountPaidInput] = useState<string>(''); // empty string to dynamically match
   const [paymentNotes, setPaymentNotes] = useState('');
+
+  const getOneMonthLaterDateStr = () => {
+    const d = new Date();
+    d.setMonth(d.getMonth() + 1);
+    return d.toISOString().split('T')[0];
+  };
+
+  const [dueDateInput, setDueDateInput] = useState<string>(getOneMonthLaterDateStr());
 
   // Selected Invoice viewer
   const [viewingSale, setViewingSale] = useState<Sale | null>(null);
@@ -278,7 +287,8 @@ export default function SalesTab({
       totalAmount,
       amountPaid: Math.min(determinedAmountPaid, totalAmount),
       paymentMethod,
-      notes: paymentNotes || undefined
+      notes: paymentNotes || undefined,
+      dueDate: (paymentMethod === 'credit' || (determinedAmountPaid < totalAmount)) ? dueDateInput : undefined
     };
 
     const createdSale = onRecordSale(compiledSale);
@@ -292,6 +302,7 @@ export default function SalesTab({
     setAmountPaidInput('');
     setPaymentNotes('');
     setPaymentMethod('cash');
+    setDueDateInput(getOneMonthLaterDateStr());
     
     // Auto show the invoice modal for instant print or WhatsApp/SMS dispatch
     setViewingSale(createdSale);
@@ -719,6 +730,32 @@ export default function SalesTab({
                   <p className="text-zinc-650 leading-snug font-medium">
                     This outstanding total of <strong className="text-rose-700 font-bold">₹{totalAmount}</strong> is recorded as Credit. 
                     This will be booked to <span className="font-bold text-zinc-900">{selectedFarmer?.name}</span>'s profile under village <span className="font-bold text-zinc-900">{selectedFarmer?.village}</span>.
+                  </p>
+                </div>
+              )}
+
+              {/* Promise Date / Due Date Selector for outstanding debt */}
+              {(paymentMethod === 'credit' || pendingDebtAddition > 0) && (
+                <div className="space-y-1.5 bg-emerald-50/40 p-4 border-2 border-dashed border-emerald-200/80 rounded-xl animate-fade-in">
+                  <div className="flex justify-between items-center">
+                    <label className="text-[10px] font-extrabold text-emerald-805 uppercase tracking-wider block" htmlFor="due-date-payment">
+                      📅 Promised Payment Date (परत फेड तारीख) *
+                    </label>
+                    <span className="text-[9px] text-emerald-600 bg-white border border-emerald-200 px-1.5 py-0.5 rounded font-black uppercase">
+                      Default: 1 Month Later
+                    </span>
+                  </div>
+                  <div className="relative">
+                    <input
+                      id="due-date-payment"
+                      type="date"
+                      value={dueDateInput}
+                      onChange={(e) => setDueDateInput(e.target.value)}
+                      className="w-full text-xs px-3 py-2.5 bg-white border-2 border-zinc-250 focus:border-emerald-500 rounded-lg focus:outline-none transition-colors font-bold text-zinc-900 cursor-pointer"
+                    />
+                  </div>
+                  <p className="text-[10px] text-zinc-500 font-medium leading-relaxed">
+                    A reminder will be scheduled on <strong>{dueDateInput ? new Date(dueDateInput).toLocaleDateString() : 'N/A'}</strong>. You will be able to send an automatic text, WhatsApp alert, or call with our system.
                   </p>
                 </div>
               )}
